@@ -82,7 +82,7 @@ function render(){
       <div class="info">
         <div class="nome">${esc(f.nome)} <span class="badge badge-${f.nivel}">${esc(NIVEIS[f.nivel]||f.nivel)}</span>
           ${!f.ativo?'<span class="badge" style="background:#3a2030;color:#ff9db0">Inativo</span>':''}</div>
-        <div class="nivel">ID: ${esc(f.id)}</div>
+        <div class="nivel">${f.login?`Login: <b>${esc(f.login)}</b> · `:""}ID: ${esc(f.id)}</div>
       </div>
       <button class="btn btn-ghost" onclick="abrirEditar('${f.id}')">✏️ Editar</button>
       <button class="btn ${f.ativo?'btn-red':'btn-grn'}" onclick="toggleAtivo('${f.id}',${!f.ativo})">${f.ativo?'Desativar':'Ativar'}</button>
@@ -106,6 +106,7 @@ function abrirNovo(){
   document.getElementById("modal").style.display="flex";
   document.getElementById("mbox").innerHTML=`<h3>Novo Funcionário</h3>
     <div class="lbl">Nome</div><input id="fNome" placeholder="Nome completo">
+    <div class="lbl">Login (usuário de acesso)</div><input id="fLogin" placeholder="Ex.: joao.silva">
     <div class="lbl">Senha</div><input id="fSenha" type="password" placeholder="Senha de acesso">
     <div class="lbl">Permissões</div>
     <div id="fPerms" style="background:#0f0d24;border:1px solid #514c96;border-radius:9px;padding:10px;margin-bottom:10px">
@@ -140,6 +141,7 @@ function abrirEditar(id){
   document.getElementById("modal").style.display="flex";
   document.getElementById("mbox").innerHTML=`<h3>Editar — ${esc(f.nome)}</h3>
     <div class="lbl">Nome</div><input id="fNome" value="${esc(f.nome)}">
+    <div class="lbl">Login</div><input id="fLogin" value="${esc(f.login||f.id)}">
     <div class="lbl">Nova senha (deixe em branco pra manter)</div><input id="fSenha" type="password" placeholder="Nova senha (opcional)">
     <div class="lbl">Nível de acesso</div>
     <select id="fNivel">
@@ -162,7 +164,7 @@ async function salvarNovo(){
   if(!nome||!senha){ document.getElementById("fMsg").innerHTML=`<div class="err">Preencha nome e senha</div>`; return; }
   if(!permissoes.length){ document.getElementById("fMsg").innerHTML=`<div class="err">Selecione ao menos uma permissão</div>`; return; }
   try{
-    const r=await fetch(B+"/api/funcionarios",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({nome,senha,nivel,permissoes})});
+    const r=await fetch(B+"/api/funcionarios",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({nome,login:document.getElementById("fLogin").value.trim().toLowerCase().replace(/\s+/g,""),senha,nivel,permissoes})});
     const j=await r.json();
     if(r.ok&&j.ok){ fecharModal(); msg=`<div class="ok">✅ Funcionário criado!</div>`; carregar(); }
     else document.getElementById("fMsg").innerHTML=`<div class="err">${esc(j.erro||"Erro")}</div>`;
@@ -173,7 +175,8 @@ async function salvarEditar(id){
   const nome=document.getElementById("fNome").value.trim();
   const senha=document.getElementById("fSenha").value;
   const nivel=document.getElementById("fNivel").value;
-  const body={nome,nivel}; if(senha) body.senha=senha;
+  const login=document.getElementById("fLogin").value.trim().toLowerCase();
+  const body={nome,nivel,login}; if(senha) body.senha=senha;
   try{
     const r=await fetch(B+"/api/funcionarios/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     const j=await r.json();

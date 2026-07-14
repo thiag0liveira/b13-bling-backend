@@ -129,22 +129,30 @@ const hashSenha=(s)=>crypto.createHash("sha256").update(s+process.env.SALT||"b13
 // ---- FUNCIONÁRIOS ----
 app.get("/api/funcionarios",(req,res)=>{
   const funcs=lerJSON(FUNC_FILE,{});
-  res.json({data:Object.values(funcs).map(f=>({id:f.id,nome:f.nome,nivel:f.nivel,ativo:f.ativo}))});
+  res.json({data:Object.values(funcs).map(f=>({id:f.id,nome:f.nome,login:f.login||"",nivel:f.nivel,permissoes:f.permissoes||[f.nivel],ativo:f.ativo}))});
 });
 app.post("/api/funcionarios",(req,res)=>{
   const {nome,senha,nivel}=req.body||{};
   if(!nome||!senha||!nivel) return res.status(400).json({erro:"nome, senha e nivel obrigatórios"});
   const funcs=lerJSON(FUNC_FILE,{});
   const id="f"+Date.now();
-  funcs[id]={id,nome,nivel,senhaHash:hashSenha(senha),ativo:true,criadoEm:Date.now()};
+  // verificar login duplicado
+  if(req.body.login && Object.values(funcs).some(f=>f.login===req.body.login))
+    return res.status(400).json({erro:"Login já em uso por outro funcionário"});
+  funcs[id]={id,nome,login:req.body.login||"",nivel,permissoes:req.body.permissoes||[nivel],senhaHash:hashSenha(senha),ativo:true,criadoEm:Date.now()};
   salvarJSON(FUNC_FILE,funcs); res.json({ok:true,id});
 });
 app.patch("/api/funcionarios/:id",(req,res)=>{
   const funcs=lerJSON(FUNC_FILE,{}); const f=funcs[req.params.id];
   if(!f) return res.status(404).json({erro:"funcionário não encontrado"});
   if(req.body.nome) f.nome=req.body.nome;
+  if(req.body.login){
+    const outros=Object.values(lerJSON(FUNC_FILE,{})).filter(x=>x.id!==req.params.id);
+    if(outros.some(x=>x.login===req.body.login)) return res.status(400).json({erro:"Login já em uso"});
+    f.login=req.body.login;
+  }
   if(req.body.nivel) f.nivel=req.body.nivel;
-  if(req.body.permissoes) f.permissoes=req.body.permissoes; // array de permissões
+  if(req.body.permissoes) f.permissoes=req.body.permissoes;
   if(typeof req.body.ativo==="boolean") f.ativo=req.body.ativo;
   if(req.body.senha) f.senhaHash=hashSenha(req.body.senha);
   salvarJSON(FUNC_FILE,funcs); res.json({ok:true});
@@ -154,11 +162,15 @@ app.delete("/api/funcionarios/:id",(req,res)=>{
   delete funcs[req.params.id]; salvarJSON(FUNC_FILE,funcs); res.json({ok:true});
 });
 app.post("/api/funcionarios/login",(req,res)=>{
-  const {senha,nivel}=req.body||{};
+  const {login,senha,nivel}=req.body||{};
   const funcs=lerJSON(FUNC_FILE,{});
   const hash=hashSenha(senha||"");
-  const f=Object.values(funcs).find(x=>x.senhaHash===hash&&x.ativo&&(!nivel||x.nivel===nivel||(x.permissoes||[]).includes(nivel)||x.nivel==="admin"));
-  if(!f) return res.status(401).json({erro:"Senha incorreta ou sem acesso"});
+  // busca por login+senha (se tiver login), senão só pela senha (compatibilidade)
+  const f=Object.values(funcs).find(x=>{
+    const loginOk=login?x.login===login:true;
+    return loginOk&&x.senhaHash===hash&&x.ativo&&(!nivel||x.nivel===nivel||(x.permissoes||[]).includes(nivel)||x.nivel==="admin");
+  });
+  if(!f) return res.status(401).json({erro:"Login ou senha incorretos"});
   res.json({ok:true,funcionario:{id:f.id,nome:f.nome,nivel:f.nivel,permissoes:f.permissoes||[f.nivel]}});
 });
 
