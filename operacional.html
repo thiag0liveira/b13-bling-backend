@@ -57,15 +57,15 @@
   .item-conf .inome{font-weight:700;font-size:13px}
   .item-conf .iqtd{font-size:11px;color:#9a95c9}
   /* kanban */
-  .kanban{display:flex;gap:10px;padding:12px;overflow-x:auto;align-items:flex-start;min-height:calc(100vh - 70px)}
-  .kcol{flex:0 0 300px;background:#0d0b1e;border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
-  .kcol-head{padding:10px 12px;font-weight:900;font-size:13px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);position:sticky;top:0;background:#0d0b1e}
+  .kanban{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;padding:12px;align-items:start}
+  .kcol{background:#0d0b1e;border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+  .kcol-head{padding:10px 12px;font-weight:900;font-size:13px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:#0d0b1e;position:sticky;top:0}
   .kcol-head .cnt{background:var(--mag);color:#fff;border-radius:999px;min-width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;padding:0 5px}
   .kcol-body{padding:8px;overflow-y:auto;max-height:calc(100vh - 130px);flex:1}
   .refresh-bar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:#0d0b1e;border-bottom:1px solid var(--border);font-size:11px;color:#9a95c9}
   .dot{width:7px;height:7px;border-radius:50%;background:#2f9e6b;display:inline-block;animation:pulse 2s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-  @media(max-width:600px){.kanban{flex-direction:column}.kcol{flex:none;width:100%}}
+  @media(max-width:600px){.kanban{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
