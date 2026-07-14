@@ -47,8 +47,27 @@ body{background:var(--bg);color:#fff;min-height:100vh}
 .spin{display:inline-block;width:20px;height:20px;border:3px solid #514c96;border-top-color:var(--mag);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 </style>
+<script src="/nav.js"></script>
+<style>
+  body.b13nav-open{ overflow:hidden }
+  @media(min-width:900px){
+    #b13nav{transform:translateX(0%) !important}
+    #b13navOverlay{display:none !important}
+    button[onclick="b13ToggleNav()"]{display:none !important}
+    body > *:not(#b13nav):not([onclick="b13ToggleNav()"]):not(#b13navOverlay){ margin-left:200px }
+  }
+</style>
 </head>
-<body>
+<body><script>
+  (function(){
+    if(!b13RequireLogin()) return;
+    document.addEventListener("DOMContentLoaded",function(){
+      const nav=document.createElement("div");
+      nav.innerHTML=b13RenderNav("/dashboard");
+      document.body.insertBefore(nav,document.body.firstChild);
+    });
+  })();
+</script>
 <div class="top">
   <img id="logoImg"><div class="t">Dashboard B13</div><div class="sp"></div>
   <a href="/operacional" class="btn btn-ghost" style="text-decoration:none">⬅ Operacional</a>

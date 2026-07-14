@@ -67,8 +67,27 @@
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
   @media(max-width:600px){.kanban{grid-template-columns:1fr}}
 </style>
+<script src="/nav.js"></script>
+<style>
+  body.b13nav-open{ overflow:hidden }
+  @media(min-width:900px){
+    #b13nav{transform:translateX(0%) !important}
+    #b13navOverlay{display:none !important}
+    button[onclick="b13ToggleNav()"]{display:none !important}
+    body > *:not(#b13nav):not([onclick="b13ToggleNav()"]):not(#b13navOverlay){ margin-left:200px }
+  }
+</style>
 </head>
-<body>
+<body><script>
+  (function(){
+    if(!b13RequireLogin()) return;
+    document.addEventListener("DOMContentLoaded",function(){
+      const nav=document.createElement("div");
+      nav.innerHTML=b13RenderNav("/operacional");
+      document.body.insertBefore(nav,document.body.firstChild);
+    });
+  })();
+</script>
 <div id="app"></div>
 <div id="modal" style="display:none" class="modal" onclick="if(event.target===this)fecharModal()">
   <div class="mbox" id="mbox"></div>
@@ -83,7 +102,7 @@ const dataBR=d=>{if(!d)return"";const p=String(d).slice(0,10).split("-");return 
 // IDs de status (carregados do backend)
 let SIT={AGUARDANDO:818795,EM_SEP:817963,SEP_PEND:819227,SEPARADO:821590,CONF_ENTREGA:821611,VERIFICADO:24};
 let FUNC=null, pedidos=[], pags={}, acrs={}, seps={}, formasPag=[], mapSit={}, timer=null;
-try{const d=sessionStorage.getItem("b13op");if(d){FUNC=JSON.parse(d);}}catch(e){}
+try{ if(typeof b13GetSession==="function"){ const sess=b13GetSession(); if(sess) FUNC=sess; } }catch(e){}
 
 // permissões por nível
 const PODE=(acao)=>{
@@ -109,12 +128,12 @@ async function login(){
     const j=await r.json();
     if(r.ok&&j.ok){
       FUNC=j.funcionario;
-      try{sessionStorage.setItem("b13op",JSON.stringify(FUNC))}catch(e){}
+      try{if(typeof b13SetSession==="function") b13SetSession(FUNC);}catch(e){}
       iniciar();
     } else { document.getElementById("pwErr").textContent=j.erro||"Senha incorreta."; }
   }catch(e){ document.getElementById("pwErr").textContent="Erro de conexão."; }
 }
-function sair(){ FUNC=null; try{sessionStorage.removeItem("b13op")}catch(e){} if(timer)clearInterval(timer); render(); }
+function sair(){ FUNC=null; if(typeof b13ClearSession==="function") b13ClearSession(); if(timer)clearInterval(timer); location.href="/login"; }
 
 async function iniciar(){
   // carrega status e formas de pagamento
@@ -235,7 +254,9 @@ function cardPedido(p,aba){
     </div>`;
   }
 
-  let sepInfo=sep?`<div class="muted" style="margin-bottom:6px">🔧 ${esc(sep.funcionarioNome)}</div>`:"";
+  const tipoLock={separacao:"🔧 Separando",conferencia:"🔍 Conferindo",edicao:"✏️ Editando"};
+  let sepInfo=sep?`<div style="background:#0d2a3a;border:1px solid #00aaff;border-radius:7px;padding:5px 8px;font-size:11px;color:#00aaff;margin-bottom:6px;display:inline-block">
+    ${tipoLock[sep.tipo]||"🔧"}: <b>${esc(sep.funcionarioNome)}</b></div>`:"";
 
   const botoes=montarBotoes(p,aba,pago,parcial);
 
@@ -279,7 +300,14 @@ function montarBotoes(p,aba,pago,parcial){
 }
 
 // ---- ações ----
-function fecharModal(){ document.getElementById("modal").style.display="none"; }
+function fecharModal(){
+  document.getElementById("modal").style.display="none";
+  if(window._confLockId && FUNC && !window._confSoVis){
+    fetch(B+"/api/separacoes/"+window._confLockId,{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({funcionarioId:FUNC.id,funcionarioNome:FUNC.nome,tipo:"conferencia"})}).catch(()=>{});
+    window._confLockId=null;
+  }
+  if(window._confHeartbeat){ clearInterval(window._confHeartbeat); window._confHeartbeat=null; }
+}
 function showMsg(id,html){ const el=document.getElementById("msg-"+id); if(el) el.innerHTML=html; }
 
 async function enviarSep(id,comPagamento){
@@ -378,6 +406,21 @@ async function confirmarPagamento(id){
 async function abrirEditar(id){
   document.getElementById("modal").style.display="flex";
   document.getElementById("mbox").innerHTML=`<div class="muted">Carregando pedido…</div>`;
+  // lock de edição
+  window._editLockMsg=""; window._editSoVis=false; window._editLockId=id;
+  const rLock=await fetch(B+"/api/separacoes",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({pedidoId:id,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,tipo:"edicao"})}).catch(()=>({status:0}));
+  if(rLock.status===409){ const jl=await rLock.json();
+    const min=Math.floor((Date.now()-(jl.lock.ultimaAtividade||jl.lock.inicio))/60000);
+    window._editSoVis=true;
+    window._editLockMsg=`<div style="background:#1c1846;border:1px solid #514c96;border-radius:8px;padding:8px;font-size:12px;margin-bottom:8px">👁 ${esc(jl.lock.funcionarioNome)} está ${jl.lock.tipo==="edicao"?"editando":"trabalhando n"}este pedido (há ${min}min)</div>`;
+  }
+  if(!window._editSoVis && FUNC){
+    if(window._editHeartbeat) clearInterval(window._editHeartbeat);
+    window._editHeartbeat=setInterval(()=>{
+      fetch(B+"/api/separacoes/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({funcionarioId:FUNC.id})}).catch(()=>{});
+    },2*60*1000);
+  }
   try{
     const [rPed,rPag,rLog]=await Promise.all([
       fetch(B+"/api/pedidos/"+id).then(r=>r.json()),
@@ -410,7 +453,7 @@ function renderModalEditar(id,ped,itens,pag,novos,retirados,logItems){
     <div id="resEdit"></div>
     <div id="editMsg"></div>
     <div style="display:flex;gap:8px;margin-top:12px">
-      <button class="btn btn-mag" style="flex:1" onclick="salvarEdicao()">💾 Salvar e voltar pra expedição</button>
+      ${window._editSoVis?`<div class="muted" style="text-align:center;padding:8px">👁 Modo visualização — outro funcionário está editando</div>`:`<button class="btn btn-mag" style="flex:1" onclick="salvarEdicao()">💾 Salvar e voltar pra expedição</button>`}
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
     </div>
     ${logItems.length?`<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
@@ -459,6 +502,12 @@ async function salvarEdicao(){
         await fetch(B+"/api/fluxo/"+id+"/acrescimo",{method:"POST",headers:{"Content-Type":"application/json"},
           body:JSON.stringify({pedidoId:id,numero:window.pedidoEditOrig.numero,cliente:window.pedidoEditOrig.contato?.nome||"",itensNovos:novos,itensRetirados:retirados})});
       }
+      // liberar lock de edição
+      if(window._editLockId && FUNC && !window._editSoVis){
+        fetch(B+"/api/separacoes/"+window._editLockId,{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({funcionarioId:FUNC.id,funcionarioNome:FUNC.nome,tipo:"edicao"})}).catch(()=>{});
+        if(window._editHeartbeat){clearInterval(window._editHeartbeat);window._editHeartbeat=null;}
+        window._editLockId=null;
+      }
       fecharModal(); await carregar();
     } else document.getElementById("editMsg").innerHTML=`<div class="err">${esc(j.erro||"Erro")}</div>`;
   }catch(e){ document.getElementById("editMsg").innerHTML=`<div class="err">Erro de conexão</div>`; }
@@ -469,6 +518,24 @@ async function abrirConferencia(id){
   document.getElementById("modal").style.display="flex";
   document.getElementById("mbox").innerHTML=`<div class="muted">Carregando pedido…</div>`;
   try{
+    // tenta pegar lock de conferência
+    const rLock=await fetch(B+"/api/separacoes",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({pedidoId:id,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,tipo:"conferencia"})});
+    let confSoVisualizacao=false;
+    let lockMsg="";
+    if(rLock.status===409){
+      const jl=await rLock.json();
+      const min=Math.floor((Date.now()-(jl.lock.ultimaAtividade||jl.lock.inicio))/60000);
+      lockMsg=`<div style="background:#1c1846;border:1px solid #514c96;border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:8px">👁 ${esc(jl.lock.funcionarioNome)} está ${jl.lock.tipo==="conferencia"?"conferindo":"trabalhando n"}este pedido (há ${min}min)</div>`;
+      confSoVisualizacao=true;
+    }
+    // heartbeat
+    if(window._confHeartbeat) clearInterval(window._confHeartbeat);
+    if(!confSoVisualizacao && FUNC) window._confHeartbeat=setInterval(()=>{
+      fetch(B+"/api/separacoes/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({funcionarioId:FUNC.id})}).catch(()=>{});
+    },2*60*1000);
+    window._confLockId=id; window._confSoVis=confSoVisualizacao;
+
     const [rPed,rPag,rAcr]=await Promise.all([
       fetch(B+"/api/expedicao/pedido/"+id).then(r=>r.json()),
       fetch(B+"/api/pagamentos/"+id).then(r=>r.json()),

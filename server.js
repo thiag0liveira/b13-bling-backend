@@ -109,6 +109,75 @@ async function getContatoPadrao(){
 
 // ------------------------- OAuth -------------------------
 app.get("/auth",(req,res)=> res.redirect(`${AUTH_URL}?response_type=code&client_id=${BLING_CLIENT_ID}&state=b13${Date.now()}`));
+app.get("/login",(req,res)=>res.sendFile(path.join(__dirname,"login.html")));
+app.get("/nav.js",(req,res)=>{
+  res.setHeader("Content-Type","application/javascript");
+  res.send(`
+// B13 Nav — módulo de autenticação compartilhado
+const B13_BACKEND="${process.env.RAILWAY_PUBLIC_DOMAIN?'https://'+process.env.RAILWAY_PUBLIC_DOMAIN:''}";
+const B13_SIT={AGUARDANDO:${SIT.AGUARDANDO},EM_SEP:${SIT.EM_SEP},SEP_PEND:${SIT.SEP_PEND},SEPARADO:${SIT.SEPARADO},CONF_ENTREGA:${SIT.CONF_ENTREGA},VERIFICADO:${SIT.VERIFICADO}};
+
+function b13GetSession(){ try{ const s=sessionStorage.getItem("b13sess"); return s?JSON.parse(s):null; }catch(e){ return null; } }
+function b13SetSession(f){ try{ sessionStorage.setItem("b13sess",JSON.stringify(f)); }catch(e){} }
+function b13ClearSession(){ try{ sessionStorage.removeItem("b13sess"); }catch(e){} }
+function b13Pode(acao){
+  const f=b13GetSession(); if(!f) return false;
+  const n=f.permissoes||[f.nivel];
+  if(n.includes("admin")) return true;
+  const mapa={
+    ver_aguardando:["financeiro_atacado","vendedor","gerente"],
+    receber_pagamento:["financeiro_atacado"],
+    enviar_separacao:["financeiro_atacado","vendedor","gerente"],
+    ver_separacao:["expedicao","gerente"],
+    ver_pend:["conferente","gerente"],
+    ver_separado:["conferente","gerente"],
+    conferir:["conferente","gerente"],
+    editar_pedido:["gerente"],
+    ver_dashboard:["gerente"],
+    ver_funcionarios:["admin"],
+    ver_listas:["gerente","admin"],
+  };
+  return (mapa[acao]||[]).some(x=>n.includes(x));
+}
+function b13RequireLogin(){ if(!b13GetSession()){ location.href="/login?next="+encodeURIComponent(location.pathname); return false; } return true; }
+function b13Logout(){ b13ClearSession(); location.href="/login"; }
+
+function b13RenderNav(ativo){
+  const f=b13GetSession(); if(!f) return "";
+  const links=[
+    {href:"/operacional",label:"⚙️ Operacional",check:()=>b13Pode("ver_aguardando")||b13Pode("ver_separacao")||b13Pode("conferir")},
+    {href:"/dashboard",label:"📊 Dashboard",check:()=>b13Pode("ver_dashboard")},
+    {href:"/gestao",label:"📋 Gestão",check:()=>b13Pode("editar_pedido")},
+    {href:"/listas",label:"📄 Listas",check:()=>b13Pode("ver_listas")},
+    {href:"/funcionarios",label:"👥 Funcionários",check:()=>b13Pode("ver_funcionarios")},
+  ].filter(l=>l.check());
+
+  return \`<div id="b13nav" style="position:fixed;top:0;left:0;bottom:0;width:200px;background:linear-gradient(180deg,#2b2870,#262366);border-right:2px solid #FF0082;display:flex;flex-direction:column;z-index:100;transform:translateX(-100%);transition:.25s" id="b13nav">
+    <div style="padding:14px 12px;border-bottom:1px solid rgba(255,0,130,.3)">
+      <div style="font-weight:900;font-size:13px;color:#fff">\${f.nome}</div>
+      <div style="font-size:11px;color:#9a95c9">\${f.nivel}</div>
+    </div>
+    <nav style="flex:1;padding:8px 0;overflow-y:auto">
+      \${links.map(l=>\`<a href="\${l.href}" style="display:flex;align-items:center;gap:8px;padding:11px 14px;color:\${l.href===ativo?'#fff':'#cfc9f5'};text-decoration:none;font-weight:700;font-size:13px;border-left:3px solid \${l.href===ativo?'#FF0082':'transparent'};background:\${l.href===ativo?'rgba(255,0,130,.1)':'transparent'}">\${l.label}</a>\`).join('')}
+    </nav>
+    <div style="padding:10px 12px;border-top:1px solid rgba(255,0,130,.3)">
+      <button onclick="b13Logout()" style="width:100%;padding:8px;border:1px solid #514c96;border-radius:8px;background:transparent;color:#9a95c9;cursor:pointer;font-size:12px">Sair</button>
+    </div>
+  </div>
+  <button onclick="b13ToggleNav()" style="position:fixed;top:12px;left:12px;z-index:101;background:#262366;border:1px solid #FF0082;border-radius:8px;color:#fff;padding:6px 10px;cursor:pointer;font-size:18px">☰</button>
+  <div id="b13navOverlay" onclick="b13ToggleNav()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99"></div>\`;
+}
+
+function b13ToggleNav(){
+  const nav=document.getElementById("b13nav");
+  const ov=document.getElementById("b13navOverlay");
+  if(!nav) return;
+  const open=nav.style.transform==="translateX(0px)"||nav.style.transform==="translateX(0%)";
+  nav.style.transform=open?"translateX(-100%)":"translateX(0%)";
+  if(ov) ov.style.display=open?"none":"block";
+}
+`);
+});
 app.get("/callback",async(req,res)=>{
   try{ const {code}=req.query; if(!code) return res.status(400).send("Sem 'code'."); await trocarCodePorToken(code);
     res.send("<h2>✅ Conta Bling conectada!</h2><p>Pode fechar. Teste em <a href='/status'>/status</a>.</p>");

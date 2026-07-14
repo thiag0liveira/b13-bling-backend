@@ -54,19 +54,19 @@ const dataBR=d=>{if(!d)return"";const p=String(d).slice(0,10).split("-");return 
 const tempo=ms=>{const m=Math.floor(ms/60000);return m<60?`${m}min`:`${Math.floor(m/60)}h${m%60}min`;};
 
 let logado=false, func=null, pedidos=[], seps={}, acrs=[], mapSit={}, timer=null;
-try{const s=sessionStorage.getItem("b13ger");if(s){const d=JSON.parse(s);logado=true;func=d;}}catch(e){}
+try{ if(typeof b13GetSession==="function"){ const sess=b13GetSession(); if(sess){logado=true;func=sess;} } }catch(e){}
 
 async function login(){
   const senha=document.getElementById("pwInp").value;
   try{
     const r=await fetch(B+"/api/funcionarios/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({login:document.getElementById("loginInp")?.value?.trim()||"",senha,nivel:"gerente"})});
     const j=await r.json();
-    if(r.ok&&j.ok){ logado=true; func=j.funcionario; try{sessionStorage.setItem("b13ger",JSON.stringify(func))}catch(e){}
+    if(r.ok&&j.ok){ logado=true; func=j.funcionario; try{if(typeof b13SetSession==="function") b13SetSession(func);}catch(e){}
       iniciar();
     } else { document.getElementById("pwErr").textContent=j.erro||"Senha incorreta."; }
   }catch(e){ document.getElementById("pwErr").textContent="Erro de conexão."; }
 }
-function sair(){ logado=false; func=null; try{sessionStorage.removeItem("b13ger")}catch(e){} if(timer)clearInterval(timer); render(); }
+function sair(){ logado=false; func=null; if(typeof b13ClearSession==="function") b13ClearSession(); if(timer)clearInterval(timer); location.href="/login"; }
 
 async function iniciar(){
   // carregar situações

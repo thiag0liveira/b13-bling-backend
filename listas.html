@@ -49,8 +49,27 @@
   .mbox{background:#1c1846;border:1px solid #3a357f;border-radius:14px;max-width:520px;width:100%;padding:18px;max-height:85vh;overflow:auto}
   .mbox h3{margin-bottom:12px;font-size:16px}
 </style>
+<script src="/nav.js"></script>
+<style>
+  body.b13nav-open{ overflow:hidden }
+  @media(min-width:900px){
+    #b13nav{transform:translateX(0%) !important}
+    #b13navOverlay{display:none !important}
+    button[onclick="b13ToggleNav()"]{display:none !important}
+    body > *:not(#b13nav):not([onclick="b13ToggleNav()"]):not(#b13navOverlay){ margin-left:200px }
+  }
+</style>
 </head>
-<body>
+<body><script>
+  (function(){
+    if(!b13RequireLogin()) return;
+    document.addEventListener("DOMContentLoaded",function(){
+      const nav=document.createElement("div");
+      nav.innerHTML=b13RenderNav("/listas");
+      document.body.insertBefore(nav,document.body.firstChild);
+    });
+  })();
+</script>
 <div id="app">
   <div class="top"><img id="logoImg"><div class="t">Gerenciador de Listas</div><div class="sp"></div>
     <button class="btn btn-ghost" onclick="importarTabela()" title="Importar produtos da tabela de preços publicada">📥 Importar tabela</button>
