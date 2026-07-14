@@ -36,6 +36,20 @@ const API = "https://api.bling.com.br/Api/v3";
 const TOKENS_FILE = `${DATA_DIR}/tokens.json`;
 const TABELA_FILE = `${DATA_DIR}/tabela.json`;
 const PEND_FILE = `${DATA_DIR}/pendencias.json`;
+const FUNC_FILE = `${DATA_DIR}/funcionarios.json`;
+const SEP_FILE  = `${DATA_DIR}/separacoes.json`;
+const ACRS_FILE = `${DATA_DIR}/acrescimos.json`;
+const PAG_FILE  = `${DATA_DIR}/pagamentos.json`;
+
+// IDs dos status — configurados via variáveis de ambiente ou padrões existentes
+const SIT = {
+  AGUARDANDO:   Number(process.env.SIT_AGUARDANDO   || 818795),
+  EM_SEP:       Number(process.env.SIT_EM_SEP       || 817963),
+  SEPARADO:     Number(process.env.SIT_SEPARADO     || 0),   // criar no Bling
+  SEP_PEND:     Number(process.env.SIT_SEP_PEND     || 0),   // criar no Bling
+  CONF_ENTREGA: Number(process.env.SIT_CONF_ENTREGA || 0),   // criar no Bling
+  VERIFICADO:   Number(process.env.SIT_VERIFICADO   || 24),
+};
 
 const app = express();
 app.use(cors());
@@ -105,6 +119,192 @@ app.get("/api/categorias",async(req,res)=>{ try{ res.json(await bling(`/categori
 app.get("/api/produto/:id",async(req,res)=>{ try{ res.json(await bling(`/produtos/${req.params.id}`)); }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }});
 app.get("/api/raw",async(req,res)=>{ try{ const p=req.query.path; if(!p||!p.startsWith("/")) return res.status(400).json({erro:"?path=/endpoint"}); res.json(await bling(p)); }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }});
 app.get("/api/situacoes",async(req,res)=>{ try{ const m=req.query.modulo; res.json(await bling(m?`/situacoes/modulos/${m}`:`/situacoes/modulos`)); }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }});
+
+// ---- helpers ----
+const lerJSON=(f,def={})=>{ try{return JSON.parse(fs.readFileSync(f,"utf8"));}catch{return def;} };
+const salvarJSON=(f,d)=>fs.writeFileSync(f,JSON.stringify(d));
+const crypto=await import("crypto");
+const hashSenha=(s)=>crypto.createHash("sha256").update(s+process.env.SALT||"b13salt").digest("hex");
+
+// ---- FUNCIONÁRIOS ----
+app.get("/api/funcionarios",(req,res)=>{
+  const funcs=lerJSON(FUNC_FILE,{});
+  res.json({data:Object.values(funcs).map(f=>({id:f.id,nome:f.nome,nivel:f.nivel,ativo:f.ativo}))});
+});
+app.post("/api/funcionarios",(req,res)=>{
+  const {nome,senha,nivel}=req.body||{};
+  if(!nome||!senha||!nivel) return res.status(400).json({erro:"nome, senha e nivel obrigatórios"});
+  const funcs=lerJSON(FUNC_FILE,{});
+  const id="f"+Date.now();
+  funcs[id]={id,nome,nivel,senhaHash:hashSenha(senha),ativo:true,criadoEm:Date.now()};
+  salvarJSON(FUNC_FILE,funcs); res.json({ok:true,id});
+});
+app.patch("/api/funcionarios/:id",(req,res)=>{
+  const funcs=lerJSON(FUNC_FILE,{}); const f=funcs[req.params.id];
+  if(!f) return res.status(404).json({erro:"funcionário não encontrado"});
+  if(req.body.nome) f.nome=req.body.nome;
+  if(req.body.nivel) f.nivel=req.body.nivel;
+  if(typeof req.body.ativo==="boolean") f.ativo=req.body.ativo;
+  if(req.body.senha) f.senhaHash=hashSenha(req.body.senha);
+  salvarJSON(FUNC_FILE,funcs); res.json({ok:true});
+});
+app.delete("/api/funcionarios/:id",(req,res)=>{
+  const funcs=lerJSON(FUNC_FILE,{}); if(!funcs[req.params.id]) return res.status(404).json({erro:"não encontrado"});
+  delete funcs[req.params.id]; salvarJSON(FUNC_FILE,funcs); res.json({ok:true});
+});
+app.post("/api/funcionarios/login",(req,res)=>{
+  const {senha,nivel}=req.body||{};
+  const funcs=lerJSON(FUNC_FILE,{});
+  const hash=hashSenha(senha||"");
+  const f=Object.values(funcs).find(x=>x.senhaHash===hash&&x.ativo&&(!nivel||x.nivel===nivel||x.nivel==="admin"));
+  if(!f) return res.status(401).json({erro:"Senha incorreta ou sem acesso"});
+  res.json({ok:true,funcionario:{id:f.id,nome:f.nome,nivel:f.nivel}});
+});
+
+// ---- SEPARAÇÕES (quem está separando o quê) ----
+app.post("/api/separacoes",(req,res)=>{
+  const {pedidoId,funcionarioId,funcionarioNome}=req.body||{};
+  if(!pedidoId||!funcionarioId) return res.status(400).json({erro:"pedidoId e funcionarioId obrigatórios"});
+  const seps=lerJSON(SEP_FILE,{});
+  seps[String(pedidoId)]={pedidoId,funcionarioId,funcionarioNome,inicio:Date.now()};
+  salvarJSON(SEP_FILE,seps); res.json({ok:true});
+});
+app.get("/api/separacoes",(req,res)=>{ res.json({data:lerJSON(SEP_FILE,{})}); });
+app.delete("/api/separacoes/:id",(req,res)=>{
+  const seps=lerJSON(SEP_FILE,{}); delete seps[String(req.params.id)];
+  salvarJSON(SEP_FILE,seps); res.json({ok:true});
+});
+
+// ---- ACRÉSCIMOS (itens novos em pedidos já separados) ----
+app.post("/api/acrescimos",(req,res)=>{
+  const {pedidoId,numero,cliente,itensNovos}=req.body||{};
+  if(!pedidoId||!itensNovos?.length) return res.status(400).json({erro:"pedidoId e itensNovos obrigatórios"});
+  const acrs=lerJSON(ACRS_FILE,{});
+  acrs[String(pedidoId)]={pedidoId,numero,cliente,itensNovos,em:Date.now(),status:"pendente"};
+  salvarJSON(ACRS_FILE,acrs); res.json({ok:true});
+});
+app.get("/api/acrescimos",(req,res)=>{ res.json({data:Object.values(lerJSON(ACRS_FILE,{}))}); });
+app.patch("/api/acrescimos/:id",(req,res)=>{
+  const acrs=lerJSON(ACRS_FILE,{}); const a=acrs[String(req.params.id)];
+  if(!a) return res.status(404).json({erro:"não encontrado"});
+  if(req.body.status) a.status=req.body.status;
+  salvarJSON(ACRS_FILE,acrs); res.json({ok:true});
+});
+
+// ---- PAGAMENTOS ----
+function lerPag(){ return lerJSON(PAG_FILE,{}); }
+function salvarPag(o){ salvarJSON(PAG_FILE,o); }
+
+app.get("/api/pagamentos/:id",(req,res)=>{
+  const pags=lerPag(); res.json({data:pags[String(req.params.id)]||null});
+});
+app.post("/api/pagamentos/:id",async(req,res)=>{
+  try{
+    const {valor,formaId,formaNome,obs,funcionarioId,funcionarioNome}=req.body||{};
+    if(!valor||!formaId) return res.status(400).json({erro:"valor e formaId obrigatórios"});
+    const pags=lerPag(); const id=String(req.params.id);
+    if(!pags[id]) pags[id]={pedidoId:id,valorPago:0,historico:[],statusPagamento:"pendente"};
+    const p=pags[id];
+    p.valorPago=+(p.valorPago+Number(valor)).toFixed(2);
+    p.historico.push({valor:Number(valor),formaId,formaNome,obs,funcionarioId,funcionarioNome,em:Date.now()});
+    // busca total do pedido pra comparar
+    try{
+      const ped=await bling(`/pedidos/vendas/${id}`); const total=ped?.data?.total||0;
+      p.valorPedido=+Number(total).toFixed(2);
+      p.statusPagamento=p.valorPago>=p.valorPedido?"pago":p.valorPago>0?"parcial":"pendente";
+    }catch(e){}
+    salvarPag(pags);
+    // lança a parcela no Bling
+    try{ await bling(`/pedidos/vendas/${id}/financeiro`,{method:"POST",body:JSON.stringify({valor:Number(valor),formasPagamento:[{id:formaId}]})}); }catch(e){}
+    res.json({ok:true,pagamento:p});
+  }catch(e){ res.status(500).json({erro:e.message}); }
+});
+app.get("/api/pagamentos",(req,res)=>{ res.json({data:lerPag()}); });
+
+// Formas de pagamento do Bling
+app.get("/api/formas-pagamento",async(req,res)=>{
+  try{ res.json(await bling("/formaspagamento")); }
+  catch(e){ res.status(e.status||500).json({erro:e.message}); }
+});
+
+// ---- FLUXO DE PEDIDOS ----
+// Enviar pedido pra separação (com ou sem pagamento)
+app.post("/api/fluxo/:id/enviar-separacao",async(req,res)=>{
+  try{
+    const {funcionarioId,funcionarioNome,pagamento}=req.body||{};
+    const id=String(req.params.id);
+    // registra pagamento se veio
+    if(pagamento?.valor&&pagamento?.formaId){
+      const pags=lerPag();
+      if(!pags[id]) pags[id]={pedidoId:id,valorPago:0,historico:[],statusPagamento:"pendente"};
+      pags[id].valorPago=+(pags[id].valorPago+Number(pagamento.valor)).toFixed(2);
+      pags[id].historico.push({valor:Number(pagamento.valor),formaId:pagamento.formaId,formaNome:pagamento.formaNome,funcionarioId,funcionarioNome,em:Date.now()});
+      pags[id].statusPagamento="pago"; salvarPag(pags);
+    }
+    // muda status no Bling
+    await bling(`/pedidos/vendas/${id}/situacoes/${SIT.EM_SEP}`,{method:"PATCH"});
+    res.json({ok:true});
+  }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
+});
+
+// Registrar resultado da expedição (separado ou separado c/ pendências)
+app.post("/api/fluxo/:id/separacao-concluida",async(req,res)=>{
+  try{
+    const {faltas,texto}=req.body||{}; const id=String(req.params.id);
+    const temFalta=faltas&&faltas.length>0;
+    const novoSit=temFalta?SIT.SEP_PEND:SIT.SEPARADO;
+    if(!novoSit) return res.status(400).json({erro:"Status SEPARADO/SEP_PEND não configurado. Configure SIT_SEPARADO e SIT_SEP_PEND no Railway."});
+    // registra pendências
+    if(temFalta){
+      const pend=lerPend();
+      const ped=await bling(`/pedidos/vendas/${id}`).then(r=>r.data).catch(()=>({}));
+      pend[id]={pedidoId:id,numero:ped.numero,cliente:ped.contato?.nome||"",telefone:ped.contato?.celular||"",faltas,sugestao:"",status:"pendente",em:Date.now()};
+      salvarPend(pend);
+      if(texto) try{ await bling(`/pedidos/vendas/${id}`,{method:"PUT",body:JSON.stringify({data:ped.data,contato:{id:ped.contato?.id},itens:(ped.itens||[]).map(i=>({produto:{id:i.produto?.id},quantidade:i.quantidade,valor:i.valor})),observacoes:(ped.observacoes?ped.observacoes+" | ":"")+texto})}); }catch(e){}
+    }
+    await bling(`/pedidos/vendas/${id}/situacoes/${novoSit}`,{method:"PATCH"});
+    // remove da fila de separação
+    const seps=lerJSON(SEP_FILE,{}); delete seps[id]; salvarJSON(SEP_FILE,seps);
+    res.json({ok:true,situacao:novoSit,temFalta});
+  }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
+});
+
+// Registrar acréscimo/retirada e voltar pra expedição
+app.post("/api/fluxo/:id/acrescimo",async(req,res)=>{
+  try{
+    const {itensNovos,itensRetirados,numero,cliente}=req.body||{}; const id=String(req.params.id);
+    const acrs=lerJSON(ACRS_FILE,{});
+    acrs[id]={pedidoId:id,numero,cliente,itensNovos:itensNovos||[],itensRetirados:itensRetirados||[],em:Date.now(),status:"pendente"};
+    salvarJSON(ACRS_FILE,acrs);
+    // volta pra em separação
+    await bling(`/pedidos/vendas/${id}/situacoes/${SIT.EM_SEP}`,{method:"PATCH"});
+    // atualiza pagamento: recalcula diferença
+    const pags=lerPag();
+    if(pags[id]){
+      const ped=await bling(`/pedidos/vendas/${id}`).then(r=>r.data).catch(()=>null);
+      if(ped) { pags[id].valorPedido=+Number(ped.total).toFixed(2);
+        pags[id].statusPagamento=pags[id].valorPago>=pags[id].valorPedido?"pago":pags[id].valorPago>0?"parcial":"pendente";
+        salvarPag(pags); }
+    }
+    res.json({ok:true});
+  }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
+});
+
+// Conferência final (conferente)
+app.post("/api/fluxo/:id/conferido",async(req,res)=>{
+  try{
+    const {funcionarioId}=req.body||{}; const id=String(req.params.id);
+    const pags=lerPag(); const pag=pags[id]||null;
+    const pago=pag&&pag.statusPagamento==="pago";
+    const novoSit=pago?SIT.VERIFICADO:SIT.CONF_ENTREGA;
+    if(!novoSit) return res.status(400).json({erro:"Status não configurado."});
+    await bling(`/pedidos/vendas/${id}/situacoes/${novoSit}`,{method:"PATCH"});
+    res.json({ok:true,situacao:novoSit,pago,valorPago:pag?.valorPago||0,valorPedido:pag?.valorPedido||0});
+  }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
+});
+
+// Retorna os status configurados (para uso no frontend)
+app.get("/api/fluxo/status",(req,res)=>res.json({sit:SIT}));
 app.get("/api/buscar",async(req,res)=>{
   try{ const nome=(req.query.nome||"").trim(); if(nome.length<2) return res.json({data:[]});
     const d=await bling(`/produtos?nome=${encodeURIComponent(nome)}&limite=100`);
@@ -422,6 +622,8 @@ app.get("/pedir-tabela", (req, res) => res.sendFile(path.join(__dirname, "pedir-
 app.get("/painel", (req, res) => res.sendFile(path.join(__dirname, "painel.html")));
 app.get("/expedicao", (req, res) => res.sendFile(path.join(__dirname, "expedicao.html")));
 app.get("/gestao", (req, res) => res.sendFile(path.join(__dirname, "gestao.html")));
+app.get("/gerenciamento", (req, res) => res.sendFile(path.join(__dirname, "gerenciamento.html")));
+app.get("/funcionarios", (req, res) => res.sendFile(path.join(__dirname, "funcionarios.html")));
 // Retorna o preço de um produto pelo código (usa cache de estoque + busca direta no Bling)
 app.get("/api/preco-codigo", async (req, res) => {
   try {
