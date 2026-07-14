@@ -135,8 +135,9 @@ async function iniciar(){
 
 async function carregar(){
   try{
+    const sits=[SIT.AGUARDANDO,SIT.EM_SEP,SIT.SEP_PEND,SIT.SEPARADO,SIT.CONF_ENTREGA].filter(Boolean).join(",");
     const [rPed,rPag,rAcr,rSep]=await Promise.all([
-      fetch(B+"/api/pedidos?limite=100").then(r=>r.json()),
+      fetch(B+"/api/pedidos?limite=100&idsSituacoes="+sits).then(r=>r.json()),
       fetch(B+"/api/pagamentos").then(r=>r.json()),
       fetch(B+"/api/acrescimos").then(r=>r.json()),
       fetch(B+"/api/separacoes").then(r=>r.json()),

@@ -520,7 +520,10 @@ app.get("/api/pedidos", async (req, res) => {
     const p = new URLSearchParams();
     p.set("pagina", req.query.pagina || 1);
     p.set("limite", req.query.limite || 50);
-    if (req.query.idsSituacoes) p.set("idsSituacoes[]", req.query.idsSituacoes);
+    if (req.query.idsSituacoes){
+      // suporta múltiplos ids separados por vírgula
+      String(req.query.idsSituacoes).split(",").forEach(id=>p.append("idsSituacoes[]", id.trim()));
+    }
     if (req.query.dataInicial) p.set("dataInicial", req.query.dataInicial);
     if (req.query.dataFinal) p.set("dataFinal", req.query.dataFinal);
     res.json(await bling(`/pedidos/vendas?${p.toString()}`));
