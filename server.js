@@ -311,6 +311,11 @@ app.post("/api/fluxo/:id/acrescimo",async(req,res)=>{
     const acrs=lerJSON(ACRS_FILE,{});
     acrs[id]={pedidoId:id,numero,cliente,itensNovos:itensNovos||[],itensRetirados:itensRetirados||[],em:Date.now(),status:"pendente"};
     salvarJSON(ACRS_FILE,acrs);
+    const {funcionarioId,funcionarioNome}=req.body||{};
+    // log detalhado de cada item acrescentado/retirado
+    if(itensNovos?.length) addLog(id,"itens_acrescentados",funcionarioId,funcionarioNome,{itens:itensNovos.map(i=>i.descricao)});
+    if(itensRetirados?.length) addLog(id,"itens_retirados",funcionarioId,funcionarioNome,{itens:itensRetirados.map(i=>i.descricao)});
+    addLog(id,"voltou_separacao",funcionarioId,funcionarioNome,{motivo:"acréscimo/retirada"});
     // volta pra em separação
     await bling(`/pedidos/vendas/${id}/situacoes/${SIT.EM_SEP}`,{method:"PATCH"});
     // atualiza pagamento: recalcula diferença
@@ -321,6 +326,19 @@ app.post("/api/fluxo/:id/acrescimo",async(req,res)=>{
         pags[id].statusPagamento=pags[id].valorPago>=pags[id].valorPedido?"pago":pags[id].valorPago>0?"parcial":"pendente";
         salvarPag(pags); }
     }
+    res.json({ok:true});
+  }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
+});
+
+// Seguir sem pendências (pedido c/ pendências vai direto pra SEPARADO sem voltar expedição)
+app.post("/api/fluxo/:id/seguir-sem-pendencias",async(req,res)=>{
+  try{
+    const id=String(req.params.id); const {funcionarioId,funcionarioNome}=req.body||{};
+    if(!SIT.SEPARADO) return res.status(400).json({erro:"Status SEPARADO não configurado"});
+    await bling(`/pedidos/vendas/${id}/situacoes/${SIT.SEPARADO}`,{method:"PATCH"});
+    // limpa pendências
+    const pend=lerPend(); if(pend[id]){pend[id].status="resolvido";salvarPend(pend);}
+    addLog(id,"seguiu_sem_pendencias",funcionarioId,funcionarioNome,{});
     res.json({ok:true});
   }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
 });

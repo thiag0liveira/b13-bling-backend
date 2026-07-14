@@ -136,16 +136,18 @@ async function iniciar(){
 async function carregar(){
   try{
     const sits=[SIT.AGUARDANDO,SIT.EM_SEP,SIT.SEP_PEND,SIT.SEPARADO,SIT.CONF_ENTREGA].filter(Boolean).join(",");
-    const [rPed,rPag,rAcr,rSep]=await Promise.all([
+    const [rPed,rPag,rAcr,rSep,rPend]=await Promise.all([
       fetch(B+"/api/pedidos?limite=100&idsSituacoes="+sits).then(r=>r.json()),
       fetch(B+"/api/pagamentos").then(r=>r.json()),
       fetch(B+"/api/acrescimos").then(r=>r.json()),
       fetch(B+"/api/separacoes").then(r=>r.json()),
+      fetch(B+"/api/pendencias").then(r=>r.json()),
     ]);
     pedidos=rPed.data||[];
     pags=rPag.data||{};
     const acrsArr=rAcr.data||[]; acrs={}; acrsArr.filter(a=>a.status==="pendente").forEach(a=>acrs[String(a.pedidoId)]=a);
     seps=rSep.data||{};
+    const pendArr=rPend.data||[]; window._pends={}; pendArr.filter(x=>x.status==="pendente").forEach(x=>window._pends[String(x.pedidoId)]=x);
   }catch(e){}
   render();
 }
@@ -219,7 +221,19 @@ function cardPedido(p,aba){
   else if(pag?.statusPagamento==="pendente") pagInfo=`<div class="pag-pend">💰 Pagamento pendente</div>`;
 
   let acrInfo="";
-  if(acr) acrInfo=`<div class="acr-box">🆕 ${acr.itensNovos?.length?`Acréscimo: ${acr.itensNovos.map(i=>`+${esc(i.descricao)}`).join(", ")}`:""} ${acr.itensRetirados?.length?`Retirada: ${acr.itensRetirados.map(i=>esc(i.descricao)).join(", ")}`:""}</div>`;
+  if(acr) acrInfo=`<div class="acr-box">🆕 ${acr.itensNovos?.length?`<b>Acréscimo:</b> ${acr.itensNovos.map(i=>`+${esc(i.descricao)}`).join(", ")}`:""} ${acr.itensRetirados?.length?`<b>Retirada:</b> ${acr.itensRetirados.map(i=>esc(i.descricao)).join(", ")}`:""}</div>`;
+  // pendências da separação
+  const pendItem=window._pends&&window._pends[String(p.id)];
+  let pendInfo="";
+  if(pendItem&&(pendItem.faltas||[]).length){
+    pendInfo=`<div style="background:#2a0a1e;border:1px solid #d400ff;border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:12px">
+      <div style="font-weight:800;color:#d400ff;margin-bottom:4px">⚠️ Itens com falta:</div>
+      ${pendItem.faltas.map(f=>`<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #3a1050">
+        <span>${esc(f.descricao)}</span>
+        <span style="color:#ff8090">faltou ${f.falta} de ${f.quantidade} un</span>
+      </div>`).join("")}
+    </div>`;
+  }
 
   let sepInfo=sep?`<div class="muted" style="margin-bottom:6px">🔧 ${esc(sep.funcionarioNome)}</div>`:"";
 
@@ -231,7 +245,7 @@ function cardPedido(p,aba){
       <div class="pc">${esc(p.contato?.nome||"—")} · ${dataBR(p.data)}</div>
       <div class="ptot">${brl(p.total)}</div>
     </div></div>
-    ${pagInfo}${acrInfo}${sepInfo}
+    ${pagInfo}${pendInfo||""}${acrInfo}${sepInfo}
     <div class="acts">${botoes}</div>
     <div id="msg-${p.id}"></div>
   </div>`;
@@ -251,8 +265,11 @@ function montarBotoes(p,aba,pago,parcial){
   }
   // ABA: c/ pendências
   if(sit===SIT.SEP_PEND){
-    return (PODE("editar_pedido")?`<button class="btn btn-ghost" onclick="abrirEditar(${id})">✏️ Editar</button>`:"")
-      +(PODE("ver_pend")?`<button class="btn btn-yellow" onclick="enviarSepNovamente(${id})">↩ Voltar pra separação</button>`:"");
+    return `<div style="display:flex;gap:6px;flex-wrap:wrap;width:100%">
+      ${PODE("editar_pedido")?`<button class="btn btn-ghost" style="flex:1" onclick="abrirEditar(${id})">✏️ Editar e voltar</button>`:""}
+      ${PODE("ver_pend")?`<button class="btn btn-yellow" style="flex:1" onclick="enviarSepNovamente(${id})">↩ Voltar separação</button>`:""}
+      ${PODE("ver_pend")?`<button class="btn btn-grn" style="flex:1" onclick="seguirSemPendencias(${id})">✅ Seguir sem pendências</button>`:""}
+    </div>`;
   }
   // ABA: separados — conferente
   if(sit===SIT.SEPARADO && PODE("conferir")){
@@ -271,6 +288,17 @@ async function enviarSep(id,comPagamento){
     const r=await fetch(B+"/api/fluxo/"+id+"/enviar-separacao",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({funcionarioId:FUNC.id,funcionarioNome:FUNC.nome})});
     const j=await r.json();
     if(r.ok&&j.ok){ await carregar(); }
+    else showMsg(id,`<div class="err">${esc(j.erro||"Erro")}</div>`);
+  }catch(e){ showMsg(id,`<div class="err">Erro de conexão</div>`); }
+}
+
+async function seguirSemPendencias(id){
+  if(!confirm("Marcar pedido como SEPARADO ignorando as pendências?")) return;
+  showMsg(id,`<div class="muted">Processando…</div>`);
+  try{
+    const r=await fetch(B+"/api/fluxo/"+id+"/seguir-sem-pendencias",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome})});
+    const j=await r.json();
+    if(r.ok&&j.ok) await carregar();
     else showMsg(id,`<div class="err">${esc(j.erro||"Erro")}</div>`);
   }catch(e){ showMsg(id,`<div class="err">Erro de conexão</div>`); }
 }
@@ -388,11 +416,15 @@ function renderModalEditar(id,ped,itens,pag,novos,retirados,logItems){
     ${logItems.length?`<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
       <div style="font-weight:800;font-size:12px;color:#9a95c9;margin-bottom:8px">📋 HISTÓRICO DO PEDIDO</div>
       ${logItems.slice().reverse().map(l=>{
-        const labels={enviado_separacao_pago:"💳 Enviado pra separação (pago)",enviado_separacao_sem_pagar:"▶ Enviado pra separação (sem pagamento)",separacao_completa:"✅ Separação concluída",separacao_com_falta:"⚠️ Separação com falta",conferido_entrega:"🚚 Conferido → Entrega",conferido_retirada:"🏪 Conferido → Retirada",pagamento_registrado:"💰 Pagamento registrado"};
+        const labels={enviado_separacao_pago:"💳 Enviado pra separação (pago)",enviado_separacao_sem_pagar:"▶ Enviado pra separação (sem pagamento)",separacao_completa:"✅ Separação concluída",separacao_com_falta:"⚠️ Separação com falta",conferido_entrega:"🚚 Conferido → Entrega",conferido_retirada:"🏪 Conferido → Retirada",pagamento_registrado:"💰 Pagamento registrado",itens_acrescentados:"➕ Itens acrescentados",itens_retirados:"➖ Itens retirados",voltou_separacao:"↩ Voltou pra separação",seguiu_sem_pendencias:"✅ Seguiu sem pendências"};
+        const getDetalhe=l=>{ if(l.detalhes?.itens?.length) return `: ${l.detalhes.itens.join(", ")}`;
+          if(l.detalhes?.valor) return `: ${brl(l.detalhes.valor)}${l.detalhes.formaNome?" ("+esc(l.detalhes.formaNome)+")":""}`;
+          if(l.detalhes?.faltas?.length) return `: ${l.detalhes.faltas.map(f=>esc(f.descricao)).join(", ")}`;
+          return ""; };
         const dt=new Date(l.em); const hora=dt.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
         const data=dt.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
         return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
-          <span>${labels[l.evento]||esc(l.evento)} ${l.funcionarioNome?`— <b>${esc(l.funcionarioNome)}</b>`:""}</span>
+          <span>${labels[l.evento]||esc(l.evento)}${getDetalhe(l)} ${l.funcionarioNome?`— <b>${esc(l.funcionarioNome)}</b>`:""}</span>
           <span style="color:#9a95c9;white-space:nowrap">${data} ${hora}</span></div>`;
       }).join("")}
     </div>`:""}`;
