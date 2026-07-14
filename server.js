@@ -40,6 +40,11 @@ const FUNC_FILE = `${DATA_DIR}/funcionarios.json`;
 const SEP_FILE  = `${DATA_DIR}/separacoes.json`;
 const ACRS_FILE = `${DATA_DIR}/acrescimos.json`;
 const PAG_FILE  = `${DATA_DIR}/pagamentos.json`;
+const FPAG_FILE = `${DATA_DIR}/formas_pagamento.json`;
+const FPAG_DEFAULT=[
+  {id:1,nome:"Dinheiro"},{id:2,nome:"PIX"},{id:3,nome:"Cartão de Crédito"},
+  {id:4,nome:"Cartão de Débito"},{id:5,nome:"Transferência"},{id:6,nome:"Boleto"},
+];
 
 // IDs dos status — configurados via variáveis de ambiente ou padrões existentes
 const SIT = {
@@ -234,10 +239,23 @@ app.post("/api/pagamentos/:id",async(req,res)=>{
 });
 app.get("/api/pagamentos",(req,res)=>{ res.json({data:lerPag()}); });
 
-// Formas de pagamento do Bling
+// Formas de pagamento (cadastradas no sistema)
 app.get("/api/formas-pagamento",async(req,res)=>{
-  try{ res.json(await bling("/formaspagamento")); }
-  catch(e){ res.status(e.status||500).json({erro:e.message}); }
+  // tenta o Bling primeiro com endpoint correto
+  try{
+    const r=await bling("/formas-pagamentos");
+    if(r?.data?.length) return res.json({data:r.data.map(f=>({id:f.id,nome:f.descricao||f.nome||String(f.id)}))});
+  }catch(e){}
+  // fallback: formas salvas localmente
+  try{ const salvas=JSON.parse(fs.readFileSync(FPAG_FILE,"utf8"));
+    res.json({data:salvas.length?salvas:FPAG_DEFAULT}); }
+  catch(e){ res.json({data:FPAG_DEFAULT}); }
+});
+app.post("/api/formas-pagamento",(req,res)=>{
+  const {formas}=req.body||{};
+  if(!Array.isArray(formas)) return res.status(400).json({erro:"formas deve ser array"});
+  fs.writeFileSync(FPAG_FILE,JSON.stringify(formas));
+  res.json({ok:true,total:formas.length});
 });
 
 // ---- FLUXO DE PEDIDOS ----
