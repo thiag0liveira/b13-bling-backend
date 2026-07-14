@@ -55,13 +55,16 @@
   .item-conf .iinfo{flex:1}
   .item-conf .inome{font-weight:700;font-size:13px}
   .item-conf .iqtd{font-size:11px;color:#9a95c9}
-  /* tabs de status */
-  .tabs{display:flex;gap:0;overflow-x:auto;background:#0d0b1e;border-bottom:1px solid var(--border)}
-  .tab{padding:10px 14px;font-size:12px;font-weight:700;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;color:#9a95c9}
-  .tab.on{color:#fff;border-bottom-color:var(--mag)}
-  .refresh-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#0d0b1e;border-bottom:1px solid var(--border);font-size:12px;color:#9a95c9}
-  .dot{width:8px;height:8px;border-radius:50%;background:#2f9e6b;display:inline-block;animation:pulse 2s infinite}
+  /* kanban */
+  .kanban{display:flex;gap:10px;padding:12px;overflow-x:auto;align-items:flex-start;min-height:calc(100vh - 70px)}
+  .kcol{flex:0 0 300px;background:#0d0b1e;border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+  .kcol-head{padding:10px 12px;font-weight:900;font-size:13px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);position:sticky;top:0;background:#0d0b1e}
+  .kcol-head .cnt{background:var(--mag);color:#fff;border-radius:999px;min-width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;padding:0 5px}
+  .kcol-body{padding:8px;overflow-y:auto;max-height:calc(100vh - 130px);flex:1}
+  .refresh-bar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:#0d0b1e;border-bottom:1px solid var(--border);font-size:11px;color:#9a95c9}
+  .dot{width:7px;height:7px;border-radius:50%;background:#2f9e6b;display:inline-block;animation:pulse 2s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  @media(max-width:600px){.kanban{flex-direction:column}.kcol{flex:none;width:100%}}
 </style>
 </head>
 <body>
@@ -78,7 +81,7 @@ const dataBR=d=>{if(!d)return"";const p=String(d).slice(0,10).split("-");return 
 
 // IDs de status (carregados do backend)
 let SIT={AGUARDANDO:818795,EM_SEP:817963,SEP_PEND:819227,SEPARADO:821590,CONF_ENTREGA:821611,VERIFICADO:24};
-let FUNC=null, pedidos=[], pags={}, acrs={}, seps={}, formasPag=[], mapSit={}, tabAtiva=0, timer=null;
+let FUNC=null, pedidos=[], pags={}, acrs={}, seps={}, formasPag=[], mapSit={}, timer=null;
 try{const d=sessionStorage.getItem("b13op");if(d){FUNC=JSON.parse(d);}}catch(e){}
 
 // permissões por nível
@@ -165,28 +168,34 @@ function render(){
     </div>`; return;
   }
 
-  // monta abas conforme permissões
-  const abas=[];
-  if(PODE("ver_aguardando")) abas.push({label:"⏳ Aguardando",sit:SIT.AGUARDANDO});
-  if(PODE("ver_separacao"))  abas.push({label:"🔄 Em Separação",sit:SIT.EM_SEP});
-  if(PODE("ver_pend"))       abas.push({label:"⚠️ C/ Pendências",sit:SIT.SEP_PEND});
-  if(PODE("ver_separado"))   abas.push({label:"📦 Separados",sit:SIT.SEPARADO});
-  if(PODE("conferir"))       abas.push({label:"🔍 Conferência",sit:SIT.SEPARADO});
+  // monta colunas do kanban conforme permissões
+  const colunas=[];
+  if(PODE("ver_aguardando")) colunas.push({label:"⏳ Aguardando",cor:"#fbff00",sit:SIT.AGUARDANDO});
+  if(PODE("ver_separacao"))  colunas.push({label:"🔄 Em Separação",cor:"#00aaff",sit:SIT.EM_SEP});
+  if(PODE("ver_pend"))       colunas.push({label:"⚠️ C/ Pendências",cor:"#d400ff",sit:SIT.SEP_PEND});
+  if(PODE("ver_separado")||PODE("conferir")) colunas.push({label:"📦 Separados",cor:"#8e42a3",sit:SIT.SEPARADO});
+  if(PODE("conferir"))       colunas.push({label:"📦 Conf. Entrega",cor:"#1f7f2a",sit:SIT.CONF_ENTREGA});
 
-  if(!abas.length){ app.innerHTML=top+`<div class="lista"><div class="muted">Seu perfil não tem acesso a nenhuma fila. Fale com o administrador.</div></div>`; return; }
-  if(tabAtiva>=abas.length) tabAtiva=0;
-  const aba=abas[tabAtiva];
+  if(!colunas.length){ app.innerHTML=top+`<div style="padding:30px;text-align:center"><div class="muted">Seu perfil não tem acesso a nenhuma fila.<br>Fale com o administrador.</div></div>`; return; }
 
-  const lista=pedidos.filter(p=>p.situacao?.id===aba.sit);
-  const cards=lista.length
-    ? lista.map(p=>cardPedido(p,aba)).join("")
-    : `<div class="muted" style="text-align:center;padding:30px">Nenhum pedido nesta fila.</div>`;
+  const totalPed=colunas.reduce((s,c)=>s+pedidos.filter(p=>p.situacao?.id===c.sit).length,0);
+  const cols=colunas.map(col=>{
+    const lista=pedidos.filter(p=>p.situacao?.id===col.sit);
+    const cards=lista.length
+      ? lista.map(p=>cardPedido(p,col)).join("")
+      : `<div class="muted" style="text-align:center;padding:20px;font-size:12px">Nenhum pedido</div>`;
+    return `<div class="kcol">
+      <div class="kcol-head">
+        <span>${col.label}</span>
+        <span class="cnt" style="background:${col.cor};color:#000">${lista.length}</span>
+      </div>
+      <div class="kcol-body">${cards}</div>
+    </div>`;
+  }).join("");
 
-  const tabs=abas.map((a,i)=>`<div class="tab ${i===tabAtiva?'on':''}" onclick="tabAtiva=${i};render()">${a.label} <b>${pedidos.filter(p=>p.situacao?.id===a.sit).length}</b></div>`).join("");
-
-  app.innerHTML=top+`<div class="tabs">${tabs}</div>
-    <div class="refresh-bar"><span class="dot"></span> Atualiza a cada 10s · ${lista.length} pedido(s)</div>
-    <div class="lista">${cards}</div>`;
+  app.innerHTML=top+`
+    <div class="refresh-bar"><span class="dot"></span> Atualiza a cada 10s · ${totalPed} pedido(s) total</div>
+    <div class="kanban">${cols}</div>`;
   document.querySelectorAll(".top img").forEach(i=>i.src=LOGO);
 }
 
@@ -273,34 +282,63 @@ async function enviarSepNovamente(id){
   }catch(e){ showMsg(id,`<div class="err">Erro</div>`); }
 }
 
+// parcelas de pagamento (igual ao Bling)
+let _parcelas=[];
 function abrirPagamento(id,total){
-  const opts=formasPag.map(f=>`<option value="${f.id}">${esc(f.nome||f.descricao||f.id)}</option>`).join("");
+  _parcelas=[{valor:Number(total).toFixed(2),formaId:formasPag[0]?.id||"",formaNome:formasPag[0]?.nome||"",obs:""}];
+  window._pagTotal=Number(total);
+  renderModalPagamento(id,total);
+}
+function renderModalPagamento(id,total){
+  const opts=formasPag.map(f=>`<option value="${f.id}">${esc(f.nome||f.id)}</option>`).join("");
+  const somaParcelas=_parcelas.reduce((s,p)=>s+parseFloat(p.valor||0),0);
+  const diff=+(Number(total)-somaParcelas).toFixed(2);
+  const rows=_parcelas.map((p,ix)=>`
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <span style="font-size:11px;color:#9a95c9;min-width:20px">${ix+1}</span>
+      <input type="number" step="0.01" value="${p.valor}" style="width:110px;padding:8px;background:#0f0d24;border:1px solid #514c96;border-radius:8px;color:#fff;font-size:13px"
+        onchange="_parcelas[${ix}].valor=this.value;renderModalPagamento(${id},${total})">
+      <select style="flex:1;padding:8px;background:#0f0d24;border:1px solid #514c96;border-radius:8px;color:#fff;font-size:12px"
+        onchange="_parcelas[${ix}].formaId=this.value;_parcelas[${ix}].formaNome=this.options[this.selectedIndex].text">
+        ${formasPag.map(f=>`<option value="${f.id}" ${f.id==p.formaId?'selected':''}>${esc(f.nome||f.id)}</option>`).join("")}
+      </select>
+      <input placeholder="Obs." value="${esc(p.obs||'')}" style="width:90px;padding:8px;background:#0f0d24;border:1px solid #514c96;border-radius:8px;color:#fff;font-size:12px"
+        onchange="_parcelas[${ix}].obs=this.value">
+      ${_parcelas.length>1?`<button onclick="_parcelas.splice(${ix},1);renderModalPagamento(${id},${total})" style="background:none;border:none;color:#ff8090;cursor:pointer;font-size:18px">✕</button>`:""}
+    </div>`).join("");
   document.getElementById("modal").style.display="flex";
-  document.getElementById("mbox").innerHTML=`<h3>💰 Receber Pagamento</h3>
-    <div class="lbl">Valor recebido</div>
-    <input id="pValor" type="number" step="0.01" value="${Number(total).toFixed(2)}" placeholder="Valor">
-    <div class="lbl">Forma de pagamento</div>
-    <select id="pForma">${opts}</select>
-    <div class="lbl">Observação (opcional)</div>
-    <input id="pObs" placeholder="Ex.: Pix confirmado">
+  document.getElementById("mbox").innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3>💰 Receber Pagamento</h3>
+      <span style="color:#ffd23f;font-weight:900">${brl(total)}</span>
+    </div>
+    ${rows}
+    <button class="btn btn-ghost" style="width:100%;margin-bottom:10px;font-size:12px"
+      onclick="_parcelas.push({valor:'${diff>0?diff.toFixed(2):'0.00'}',formaId:formasPag[0]?.id||'',formaNome:formasPag[0]?.nome||'',obs:''});renderModalPagamento(${id},${total})">
+      + Adicionar parcela ${diff>0?`(falta ${brl(diff)})`:''}</button>
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-bottom:10px;font-size:13px">
+      <span>Total parcelas:</span>
+      <b style="color:${Math.abs(diff)<0.01?'#2f9e6b':diff<0?'#e5563f':'#ffd23f'}">${brl(somaParcelas)} ${Math.abs(diff)<0.01?'✅':diff>0?`(falta ${brl(diff)})`:``}</b>
+    </div>
     <div id="pMsg"></div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-grn" style="flex:1" onclick="confirmarPagamento(${id})">✅ Confirmar e enviar pra separação</button>
-      <button class="btn btn-ghost" style="flex:1" onclick="fecharModal()">Cancelar</button>
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
     </div>`;
 }
 
 async function confirmarPagamento(id){
-  const valor=parseFloat(document.getElementById("pValor").value);
-  const formaEl=document.getElementById("pForma");
-  const formaId=Number(formaEl.value);
-  const formaNome=formaEl.options[formaEl.selectedIndex]?.text||"";
-  const obs=document.getElementById("pObs").value;
-  if(!valor||valor<=0){ document.getElementById("pMsg").innerHTML=`<div class="err">Informe o valor</div>`; return; }
+  const totalParcelas=+_parcelas.reduce((s,p)=>s+parseFloat(p.valor||0),0).toFixed(2);
+  const totalPedido=+window._pagTotal;
+  const diff=+(totalParcelas-totalPedido).toFixed(2);
+  if(!totalParcelas||totalParcelas<=0){ document.getElementById("pMsg").innerHTML=`<div class="err">Informe o valor</div>`; return; }
+  if(diff>0.01){ document.getElementById("pMsg").innerHTML=`<div class="err">❌ Valor das parcelas (${brl(totalParcelas)}) é maior que o total do pedido (${brl(totalPedido)}). Corrija antes de confirmar.</div>`; return; }
+  if(diff<-0.01){ document.getElementById("pMsg").innerHTML=`<div class="err">❌ Valor das parcelas (${brl(totalParcelas)}) é menor que o total do pedido (${brl(totalPedido)}). Corrija antes de confirmar.</div>`; return; }
+  const total=totalParcelas;
   document.getElementById("pMsg").innerHTML=`<div class="muted">Registrando…</div>`;
   try{
     const r=await fetch(B+"/api/fluxo/"+id+"/enviar-separacao",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({funcionarioId:FUNC.id,funcionarioNome:FUNC.nome,pagamento:{valor,formaId,formaNome,obs}})});
+      body:JSON.stringify({funcionarioId:FUNC.id,funcionarioNome:FUNC.nome,pagamento:{valor:total,parcelas:_parcelas,formaId:_parcelas[0]?.formaId,formaNome:_parcelas[0]?.formaNome}})});
     const j=await r.json();
     if(r.ok&&j.ok){ fecharModal(); await carregar(); }
     else document.getElementById("pMsg").innerHTML=`<div class="err">${esc(j.erro||"Erro")}</div>`;
