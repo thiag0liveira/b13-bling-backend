@@ -144,6 +144,7 @@ app.patch("/api/funcionarios/:id",(req,res)=>{
   if(!f) return res.status(404).json({erro:"funcionário não encontrado"});
   if(req.body.nome) f.nome=req.body.nome;
   if(req.body.nivel) f.nivel=req.body.nivel;
+  if(req.body.permissoes) f.permissoes=req.body.permissoes; // array de permissões
   if(typeof req.body.ativo==="boolean") f.ativo=req.body.ativo;
   if(req.body.senha) f.senhaHash=hashSenha(req.body.senha);
   salvarJSON(FUNC_FILE,funcs); res.json({ok:true});
@@ -156,9 +157,9 @@ app.post("/api/funcionarios/login",(req,res)=>{
   const {senha,nivel}=req.body||{};
   const funcs=lerJSON(FUNC_FILE,{});
   const hash=hashSenha(senha||"");
-  const f=Object.values(funcs).find(x=>x.senhaHash===hash&&x.ativo&&(!nivel||x.nivel===nivel||x.nivel==="admin"));
+  const f=Object.values(funcs).find(x=>x.senhaHash===hash&&x.ativo&&(!nivel||x.nivel===nivel||(x.permissoes||[]).includes(nivel)||x.nivel==="admin"));
   if(!f) return res.status(401).json({erro:"Senha incorreta ou sem acesso"});
-  res.json({ok:true,funcionario:{id:f.id,nome:f.nome,nivel:f.nivel}});
+  res.json({ok:true,funcionario:{id:f.id,nome:f.nome,nivel:f.nivel,permissoes:f.permissoes||[f.nivel]}});
 });
 
 // ---- SEPARAÇÕES (quem está separando o quê) ----
@@ -624,6 +625,7 @@ app.get("/expedicao", (req, res) => res.sendFile(path.join(__dirname, "expedicao
 app.get("/gestao", (req, res) => res.sendFile(path.join(__dirname, "gestao.html")));
 app.get("/gerenciamento", (req, res) => res.sendFile(path.join(__dirname, "gerenciamento.html")));
 app.get("/funcionarios", (req, res) => res.sendFile(path.join(__dirname, "funcionarios.html")));
+app.get("/operacional", (req, res) => res.sendFile(path.join(__dirname, "operacional.html")));
 // Retorna o preço de um produto pelo código (usa cache de estoque + busca direta no Bling)
 app.get("/api/preco-codigo", async (req, res) => {
   try {
