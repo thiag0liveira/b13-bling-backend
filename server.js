@@ -1130,25 +1130,38 @@ app.put("/api/pedidos/:id/itens", async (req, res) => {
     if (ped.vendedor?.id) payload.vendedor = { id: ped.vendedor.id };
 
     let resultado;
+    let fezUnlock=false;
     try{
       // tenta editar direto (funciona para alguns status)
       await new Promise(r=>setTimeout(r,200));
       resultado=await blingComRetry(`/pedidos/vendas/${req.params.id}`,{ method:"PUT", body:JSON.stringify(payload) });
     }catch(e1){
       if(e1.status!==400||!precisaUnlock) throw e1;
-      // 400: tenta via Em Digitação (aceita transição de qualquer status)
+      // 400: tenta via Em Digitação
       console.log("Tentando via Em Digitação para editar itens, sit atual:", sit);
       try{
         await blingComRetry(`/pedidos/vendas/${req.params.id}/situacoes/${SIT_EM_DIGITACAO}`,{method:"PATCH"});
+        fezUnlock=true; // marcou que mudou status — DEVE restaurar no finally
         await new Promise(r=>setTimeout(r,400));
         resultado=await blingComRetry(`/pedidos/vendas/${req.params.id}`,{ method:"PUT", body:JSON.stringify(payload) });
-        await new Promise(r=>setTimeout(r,400));
-        // restaura status original
-        try{ await blingComRetry(`/pedidos/vendas/${req.params.id}/situacoes/${sit}`,{method:"PATCH"}); }catch(e){}
       }catch(e2){
-        // última tentativa: salva sem mudar status (alguns campos aceitam)
         console.error("PUT itens erro final:", JSON.stringify(e2.body||e2.message));
         throw e2;
+      }
+    }finally{
+      // SEMPRE restaura o status original se fez unlock — mesmo em caso de erro
+      if(fezUnlock){
+        await new Promise(r=>setTimeout(r,400));
+        for(let t=0;t<5;t++){
+          try{
+            await bling(`/pedidos/vendas/${req.params.id}/situacoes/${sit}`,{method:"PATCH"});
+            console.log("Status restaurado para", sit);
+            break;
+          }catch(e){
+            console.error("Erro ao restaurar status tentativa "+(t+1)+":", e.message);
+            await new Promise(r=>setTimeout(r,800*(t+1)));
+          }
+        }
       }
     }
     if(funcionarioId) addLog(String(req.params.id),"itens_editados",funcionarioId,funcionarioNome,{motivo:motivo||"edição manual",qtdItens:itens.length});
