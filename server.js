@@ -1067,12 +1067,21 @@ app.get("/api/buscar-atacado", async (req, res) => {
 // Atualiza os ITENS de um pedido (mantém o resto do pedido), bloqueando Atendido/Cancelado
 app.put("/api/pedidos/:id/itens", async (req, res) => {
   try {
-    const itens = req.body?.itens;
+    const {itens, funcionarioId, funcionarioNome, motivo} = req.body||{};
     if (!Array.isArray(itens)) return res.status(400).json({ erro: "itens inválidos" });
     const atualJson = await bling(`/pedidos/vendas/${req.params.id}`);
     const ped = atualJson?.data; if (!ped) return res.status(404).json({ erro: "pedido não encontrado" });
     const sit = ped.situacao?.id;
     if (sit === 9 || sit === 12) return res.status(400).json({ erro: "Pedido Atendido/Cancelado não pode ser editado." });
+
+    // status que o Bling não permite editar itens — mover temporariamente para Em Aberto
+    const STATUS_BLOQUEADOS=[SIT.EM_SEP,SIT.SEP_PEND,SIT.SEPARADO,SIT.CONF_ENTREGA,SIT.EM_ROTA];
+    const precisaUnlock=STATUS_BLOQUEADOS.includes(sit);
+    // status "Em aberto" no Bling (id 15 = em aberto / digitação)
+    const SIT_EDITAVEL=15;
+    if(precisaUnlock){
+      try{ await bling(`/pedidos/vendas/${req.params.id}/situacoes/${SIT_EDITAVEL}`,{method:"PATCH"}); await new Promise(r=>setTimeout(r,500)); }catch(e){}
+    }
 
     const payload = {
       data: ped.data, contato: { id: ped.contato?.id },
@@ -1081,8 +1090,19 @@ app.put("/api/pedidos/:id/itens", async (req, res) => {
     };
     if (ped.transporte?.frete) payload.transporte = { fretePorConta: ped.transporte.fretePorConta ?? 0, frete: ped.transporte.frete };
     if (ped.vendedor?.id) payload.vendedor = { id: ped.vendedor.id };
-    if (ped.situacao?.id) payload.situacao = { id: ped.situacao.id };
-    res.json(await bling(`/pedidos/vendas/${req.params.id}`, { method: "PUT", body: JSON.stringify(payload) }));
+
+    let resultado;
+    try{
+      resultado=await bling(`/pedidos/vendas/${req.params.id}`, { method: "PUT", body: JSON.stringify(payload) });
+    }finally{
+      // restaura o status original
+      if(precisaUnlock){
+        try{ await new Promise(r=>setTimeout(r,300)); await bling(`/pedidos/vendas/${req.params.id}/situacoes/${sit}`,{method:"PATCH"}); }catch(e){}
+      }
+    }
+    // registra log
+    if(funcionarioId) addLog(String(req.params.id),"itens_editados",funcionarioId,funcionarioNome,{motivo:motivo||"edição manual",qtdItens:itens.length});
+    res.json(resultado||{ok:true});
   } catch (e) { res.status(e.status || 500).json({ erro: e.message, body: e.body }); }
 });
 

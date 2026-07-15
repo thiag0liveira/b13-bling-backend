@@ -647,7 +647,6 @@ async function voltarPendencias(id){
 }
 
 async function retirarPendenciasESeguir(id){
-  // abre o pedido para editar e ajustar as quantidades antes de marcar como SEPARADO
   document.getElementById("modal").style.display="flex";
   document.getElementById("mbox").innerHTML=`<div class="muted">Carregando pendências…</div>`;
   try{
@@ -658,34 +657,70 @@ async function retirarPendenciasESeguir(id){
     const ped=rPed.data||rPed;
     const pend=(rPend.data||[]).find(x=>String(x.pedidoId)===String(id));
     const faltas=pend?.faltas||[];
-    // monta itens ajustados (subtrai as faltas)
-    const itensAjust=(ped.itens||[]).map(i=>{
+    window.itensEdit=(ped.itens||[]).map(i=>{
       const falta=faltas.find(f=>f.produtoId===i.produto?.id||f.descricao===i.descricao);
-      const qtdTem=falta?falta.temQtd:i.quantidade;
-      return {...i,quantidadeOriginal:i.quantidade,quantidade:qtdTem,_ajustado:!!falta&&qtdTem<i.quantidade};
-    }).filter(i=>i.quantidade>0);
-    window.itensEdit=itensAjust.map(i=>({produtoId:i.produto?.id,descricao:i.descricao||i.produto?.nome||"",quantidade:i.quantidade,valor:i.valor,_orig:!i._ajustado}));
+      return {produtoId:i.produto?.id,descricao:i.descricao||i.produto?.nome||"",
+        quantidade:falta?falta.temQtd:i.quantidade,quantidadeOriginal:i.quantidade,
+        temQtd:falta?.temQtd??i.quantidade,faltaQtd:falta?.falta||0,
+        valor:i.valor,_teveFalta:!!falta,_removido:false};
+    });
     window.pedidoEditId=id; window.pedidoEditOrig=ped;
-    const rows=itensAjust.map((i,ix)=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
-      <span style="flex:1;${i._ajustado?'color:#ff8c00':''}">${i._ajustado?'⚠️ ':''}${esc(i.descricao||i.produto?.nome||"")}</span>
-      ${i._ajustado?`<span class="muted" style="text-decoration:line-through;font-size:11px">${i.quantidadeOriginal}</span>`:""}
-      <input type="number" min="0" value="${i.quantidade}" style="width:56px;padding:4px;background:#0f0d24;border:1px solid #514c96;border-radius:6px;color:#fff" onchange="window.itensEdit[${ix}].quantidade=+this.value">
-      <span class="muted" style="width:80px;text-align:right">${brl(i.valor*i.quantidade)}</span>
-    </div>`).join("");
-    document.getElementById("mbox").innerHTML=`
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <h3>✂️ Retirar Pendências — Pedido ${esc(ped.numero||id)}</h3>
-        <button class="btn btn-ghost" onclick="fecharModal()">✕</button></div>
-      ${faltas.length?`<div class="pag-pend" style="margin-bottom:10px">⚠️ ${faltas.length} item(ns) com falta — ajuste as quantidades abaixo</div>`:""}
-      <div style="max-height:40vh;overflow:auto">${rows}</div>
-      <div id="retMsg"></div>
-      <div style="display:flex;gap:8px;margin-top:12px">
-        <button class="btn btn-mag" style="flex:1" onclick="confirmarRetirarSeguir(${id})">✅ Confirmar e marcar como SEPARADO</button>
-        <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
-      </div>`;
+    window._pendFaltas=faltas;
+    renderRetirarPend(id,faltas);
   }catch(e){ document.getElementById("mbox").innerHTML=`<div class="err">Erro ao carregar</div>`; }
 }
 
+function renderRetirarPend(id,faltas){
+  faltas=faltas||window._pendFaltas||[];
+  const items=window.itensEdit;
+  const total=+items.filter(i=>!i._removido&&i.quantidade>0).reduce((s,i)=>s+(i.quantidade*(i.valor||0)),0).toFixed(2);
+  const faltsCount=items.filter(i=>i._teveFalta&&!i._removido).length;
+  const rows=items.map((item,ix)=>{
+    if(item._removido) return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);opacity:.4;font-size:12px">
+      <span style="text-decoration:line-through;flex:1;color:#9a95c9">${esc(item.descricao)}</span>
+      <span style="color:#ff8090;font-size:11px">removido</span>
+      <button onclick="window.itensEdit[${ix}]._removido=false;window.itensEdit[${ix}].quantidade=window.itensEdit[${ix}].temQtd||window.itensEdit[${ix}].quantidadeOriginal;renderRetirarPend(${id})" style="background:none;border:1px solid #514c96;border-radius:4px;color:#9a95c9;cursor:pointer;font-size:10px;padding:2px 6px">↩ Restaurar</button>
+    </div>`;
+    if(item._teveFalta){
+      return `<div style="padding:8px;margin-bottom:6px;background:#2a1000;border:1px solid #ff8c00;border-radius:8px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="flex:1;font-weight:700;color:#ffb347">⚠️ ${esc(item.descricao)}</span>
+          <span style="font-size:11px;color:#ff8090;background:#3a1000;border-radius:4px;padding:2px 7px">pediu ${item.quantidadeOriginal} · tinha ${item.temQtd} · faltou ${item.faltaQtd}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span style="font-size:12px;color:#9a95c9">Qtd:</span>
+          <button onclick="if(window.itensEdit[${ix}].quantidade>0)window.itensEdit[${ix}].quantidade--;renderRetirarPend(${id})" style="background:#1c1846;border:1px solid #514c96;border-radius:5px;color:#fff;cursor:pointer;width:28px;height:28px;font-size:16px">−</button>
+          <input type="number" min="0" max="${item.quantidadeOriginal}" value="${item.quantidade}" style="width:60px;padding:5px;background:#0f0d24;border:1px solid #514c96;border-radius:6px;color:#fff;text-align:center;font-size:15px;font-weight:700"
+            onchange="window.itensEdit[${ix}].quantidade=Math.max(0,Math.min(${item.quantidadeOriginal},+this.value));renderRetirarPend(${id})">
+          <button onclick="if(window.itensEdit[${ix}].quantidade<${item.quantidadeOriginal})window.itensEdit[${ix}].quantidade++;renderRetirarPend(${id})" style="background:#1c1846;border:1px solid #514c96;border-radius:5px;color:#fff;cursor:pointer;width:28px;height:28px;font-size:16px">+</button>
+          <span style="color:#9a95c9;font-size:11px">de ${item.quantidadeOriginal}</span>
+          <b style="margin-left:auto">${brl((item.valor||0)*item.quantidade)}</b>
+          <button onclick="window.itensEdit[${ix}]._removido=true;window.itensEdit[${ix}].quantidade=0;renderRetirarPend(${id})" style="background:#3a0010;border:1px solid #ff4466;border-radius:5px;color:#ff8090;cursor:pointer;padding:4px 8px;font-size:11px">🗑 Remover</button>
+        </div>
+        ${item.quantidade===0?`<div style="font-size:11px;color:#ff8090;margin-top:4px">será removido do pedido</div>`:""}
+      </div>`;
+    }
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span style="flex:1">${esc(item.descricao)}</span>
+      <span class="muted">x${item.quantidade}</span>
+      <span style="width:86px;text-align:right">${brl((item.valor||0)*item.quantidade)}</span>
+    </div>`;
+  }).join("");
+  document.getElementById("mbox").innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h3>✂️ Resolver Pendências — Pedido ${esc(window.pedidoEditOrig?.numero||id)}</h3>
+      <button class="btn btn-ghost" onclick="fecharModal()">✕</button></div>
+    ${faltsCount?`<div class="pag-pend" style="margin-bottom:8px">⚠️ ${faltsCount} item(ns) com falta em destaque abaixo</div>`:`<div class="pag-info" style="margin-bottom:8px">✅ Nenhuma falta registrada</div>`}
+    <div style="max-height:45vh;overflow:auto;padding-right:2px">${rows}</div>
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:6px">
+      <span class="muted">Total ajustado:</span><b style="color:#ffd23f">${brl(total)}</b>
+    </div>
+    <div id="retMsg"></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn btn-grn" style="flex:1" onclick="confirmarRetirarSeguir(${id})">✅ Confirmar e marcar como SEPARADO</button>
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+    </div>`;
+}
 async function confirmarRetirarSeguir(id){
   document.getElementById("retMsg").innerHTML=`<div class="muted">Verificando…</div>`;
   const itensFiltrados=window.itensEdit.filter(i=>i.quantidade>0);
