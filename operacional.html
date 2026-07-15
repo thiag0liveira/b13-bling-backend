@@ -622,6 +622,11 @@ async function whatsAguardando(id){
         }
       }catch(e){}
     }
+    if(!tel && ped.observacoes){
+      // fallback final: extrai telefone da observação do pedido (colocado pelo totem)
+      const m=ped.observacoes.match(/\((\d[\d\s().-]{7,})\)/);
+      if(m) tel=m[1].replace(/\D/g,"");
+    }
     if(!tel){ showMsg(id,`<div class="err">Telefone não encontrado para este cliente</div>`); return; }
     const num=tel.startsWith("55")?tel:"55"+tel;
     const itens=(ped.itens||[]).map(i=>`- ${i.descricao||i.produto?.nome||"Produto"}: ${i.quantidade} un`).join("\n");

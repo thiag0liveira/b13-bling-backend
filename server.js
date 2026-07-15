@@ -865,8 +865,9 @@ app.post("/api/finalizar", async (req, res) => {
       const achado = (busca.data || []).find((c) => soDigitos(c.numeroDocumento) === doc);
       if (achado) {
         contatoId = achado.id;
-        // atualiza telefone se foi informado e o contato não tem
-        if(telefone && (!achado.celular||!achado.telefone)){
+        // sempre atualiza telefone quando informado — a busca de contatos não retorna celular
+        // então não dá pra saber se já tem; melhor sobrescrever com o dado mais recente
+        if(telefone){
           try{ await bling(`/contatos/${contatoId}`,{method:"PATCH",body:JSON.stringify({celular:telefone,telefone:telefone})}); }catch(e){}
         }
       } else {
