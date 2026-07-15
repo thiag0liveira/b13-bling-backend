@@ -343,9 +343,7 @@ function telaCatalogo(app){
   const side=CAT.map((c,i)=>`<div class="scat ${!busca&&i===S.catAtiva?"on":""}" onclick="S.busca='';S.catAtiva=${i};S.expandido=null;render()">${esc(c.nome)}</div>`).join("");
   const cards=lista.map(p=>cardProduto(p,busca)).join("") || `<div class="muted">Nenhum produto encontrado.</div>`;
 
-  const boasVindas = (S.identificado && S.docChecado)
-    ? `<div class="wrap" style="padding-bottom:0"><div class="${S.docNome?'ok':'warn'}" style="margin:0">${S.docNome?`👋 Olá, <b>${esc(S.docNome)}</b>! Cadastro encontrado.`:`Documento ${S.doc}: novo cliente — o cadastro será criado ao finalizar.`}</div></div>`
-    : "";
+  const boasVindas = ""; // removido — cardCliente() já mostra essa info
   app.innerHTML=header(true)+ boasVindas +
     `<div class="searchbar"><input placeholder="🔎 Buscar produto (ex.: heineken, gin, coca)" value="${esc(S.busca)}" oninput="S.busca=this.value;S.expandido=null;render()">${S.busca?`<button class="clr" onclick="S.busca='';render()">✕</button>`:""}</div>
      <div class="cats">${cats}</div>
@@ -448,8 +446,8 @@ function telaCheckout(app){
     ${cardCliente()}
     ${S.docChecado
       ? (S.docNome
-          ? `<div class="ok">✅ Cadastro encontrado: <b>${esc(S.docNome)}</b><br><span class="muted" style="font-size:12px">Dados pré-preenchidos do cadastro — verifique e corrija se necessário.</span></div>`
-          : `<div class="warn">Novo cliente — preencha os dados abaixo para criar o cadastro.</div>`)
+          ? ``
+          : `<div class="warn">🆕 Novo cliente — preencha os dados abaixo para criar o cadastro.</div>`)
       : (soDig(S.doc).length>=11 ? `<button class="btn btn-out" style="width:100%" onclick="checarDoc()">Verificar cadastro</button>` : "")}
 
     ${(()=>{
@@ -491,7 +489,8 @@ function telaCheckout(app){
 }
 function blocoEndereco(novo){
   const e=S.end;
-  return `<div style="font-weight:800;margin-top:14px">Endereço${novo?" (para cadastro)":" de entrega"}</div>
+  const tituloEnd=novo?"Endereco (para cadastro)":(!e.rua?"Endereco obrigatorio":"Endereco");
+  return `<div style="font-weight:800;margin-top:14px">${tituloEnd}</div>
     <input placeholder="CEP*" inputmode="numeric" value="${esc(e.cep)}" oninput="S.end.cep=this.value" onblur="buscarCep()">
     ${S.cepMsg?`<div class="muted">${esc(S.cepMsg)}</div>`:""}
     <input placeholder="Rua / logradouro*" value="${esc(e.rua)}" oninput="S.end.rua=this.value">
