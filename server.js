@@ -973,10 +973,8 @@ app.post("/api/finalizar", async (req, res) => {
       contato: { id: Number(contatoId) },
       itens: itens.map((i) => ({ produto: { id: Number(i.produtoId) }, quantidade: Number(i.quantidade), valor: Number(i.valor) })),
       observacoes: obs,
-      // condição de pagamento vazia — sem parcelas definidas
-      // o Bling aplica o padrão da conta, mas vamos sobrescrever com objeto vazio
+      parcelas: [],
     };
-    // tenta remover a condição de pagamento padrão após criar o pedido
     if (entrega && entrega.tipo === "entrega"){
       payload.transporte = {
         fretePorConta: 0,
@@ -1000,21 +998,8 @@ app.post("/api/finalizar", async (req, res) => {
     if (process.env.BLING_VENDEDOR_ID) payload.vendedor = { id: Number(process.env.BLING_VENDEDOR_ID) };
     if (process.env.BLING_SITUACAO_ID) payload.situacao = { id: Number(process.env.BLING_SITUACAO_ID) };
     const pedido = await bling(`/pedidos/vendas`, { method: "POST", body: JSON.stringify(payload) });
-    // remover parcela automática que o Bling adiciona — pedido será pago pela loja no momento da separação
-    const pedidoId=pedido?.data?.id;
-    if(pedidoId){
-      try{
-        await new Promise(r=>setTimeout(r,500));
-        const ped2=await bling(`/pedidos/vendas/${pedidoId}`);
-        const parcAutom=ped2?.data?.parcelas||[];
-        for(const parc of parcAutom){
-          if(parc.id){
-            await new Promise(r=>setTimeout(r,400));
-            try{ await bling(`/pedidos/vendas/${pedidoId}/parcelas/${parc.id}`,{method:"DELETE"}); }catch(e){}
-          }
-        }
-      }catch(e){ console.log("Parcelas automáticas:", e.message); }
-    }
+    // nota: condição de pagamento padrão deve ser removida nas configurações do Bling
+    // Ajustes → Preferências → Vendas → Condição de pagamento padrão → vazio
     res.json({ ok: true, contatoId, criouContato, pedido });
   } catch (e) { res.status(e.status || 500).json({ erro: e.message, body: e.body }); }
 });
