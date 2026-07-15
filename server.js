@@ -849,8 +849,23 @@ app.get("/api/contatos/:id",async(req,res)=>{
 });
 app.get("/api/contatos",async(req,res)=>{
   try{ const doc=soDigitos(req.query.doc); if(!doc) return res.status(400).json({erro:"?doc=CPF_ou_CNPJ"});
-    const d=await bling(`/contatos?pesquisa=${encodeURIComponent(doc)}`); const l=d?.data||[];
-    const a=l.find(c=>soDigitos(c.numeroDocumento)===doc)||null;
+    // tenta buscar pelo número do documento
+    const d=await bling(`/contatos?pesquisa=${encodeURIComponent(doc)}`); let l=d?.data||[];
+    let a=l.find(c=>soDigitos(c.numeroDocumento)===doc)||null;
+    // se não achou, tenta buscar com formatação (CPF: 000.000.000-00, CNPJ: 00.000.000/0000-00)
+    if(!a){
+      let docFmt=doc;
+      if(doc.length===11) docFmt=`${doc.slice(0,3)}.${doc.slice(3,6)}.${doc.slice(6,9)}-${doc.slice(9)}`;
+      if(doc.length===14) docFmt=`${doc.slice(0,2)}.${doc.slice(2,5)}.${doc.slice(5,8)}/${doc.slice(8,12)}-${doc.slice(12)}`;
+      const d2=await bling(`/contatos?pesquisa=${encodeURIComponent(docFmt)}`); const l2=d2?.data||[];
+      a=l2.find(c=>soDigitos(c.numeroDocumento)===doc)||null;
+    }
+    // terceira tentativa: busca por todos os contatos com esse documento (sem filtro)
+    if(!a){
+      const d3=await bling(`/contatos?numeroDocumento=${encodeURIComponent(doc)}`); const l3=d3?.data||[];
+      a=l3.find(c=>soDigitos(c.numeroDocumento)===doc)||null;
+    }
+    console.log("Busca contato doc:", doc, "encontrado:", !!a, "id:", a?.id);
     if(!a) return res.json({encontrado:false,contato:null});
     // busca detalhe completo (com endereço, telefone, celular, email)
     let detalhe=a;
