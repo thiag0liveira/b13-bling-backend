@@ -80,7 +80,7 @@ async function iniciar(){
 async function carregar(){
   try{
     const [rPed,rSep,rAcr]=await Promise.all([
-      fetch(B+"/api/pedidos?limite=100").then(r=>r.json()),
+      fetch(B+"/api/pedidos?limite=200").then(r=>r.json()),
       fetch(B+"/api/separacoes").then(r=>r.json()),
       fetch(B+"/api/acrescimos").then(r=>r.json()),
     ]);

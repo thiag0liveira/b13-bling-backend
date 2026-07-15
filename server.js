@@ -470,30 +470,39 @@ app.get("/api/analytics", async (req,res)=>{
   try{
     const agora=Date.now();
     const {de, ate}=req.query;
-    const tsInicio=de?new Date(de).getTime():agora-30*24*60*60*1000;
-    const tsFim=ate?new Date(ate).getTime()+86399999:agora;
+    // usa fuso de Brasília (UTC-3) para calcular datas
+    const offsetBR=3*60*60*1000;
+    const hojeBR=new Date(agora-offsetBR).toISOString().slice(0,10);
+    const tsInicio=de?new Date(de+"T03:00:00.000Z").getTime():agora-30*24*60*60*1000;
+    const tsFim=ate?new Date(ate+"T03:00:00.000Z").getTime()+86399999:agora;
     const dentroP=ts=>ts>=tsInicio&&ts<=tsFim;
 
     // carrega todos os dados
     const log=lerLog(); const pags=lerPag();
     const pend=lerPend(); const acrs=lerJSON(ACRS_FILE,{});
 
-    // busca pedidos do Bling no período
-    const dataI=new Date(tsInicio).toISOString().slice(0,10);
-    const dataF=new Date(tsFim).toISOString().slice(0,10);
+    // busca pedidos do Bling no período (usa datas em horário de Brasília)
+    const dataI=de||new Date(agora-30*24*60*60*1000-offsetBR).toISOString().slice(0,10);
+    const dataF=ate||hojeBR;
     // busca todos os pedidos com paginação completa
     const buscarTodosPedidos=async(dataInicial,dataFinal)=>{
       const todos=[];
       const sits=[SIT.AGUARDANDO,SIT.EM_SEP,SIT.SEP_PEND,SIT.SEPARADO,SIT.CONF_ENTREGA,SIT.VERIFICADO,9].filter(Boolean);
-      for(let pg=1;pg<=10;pg++){
+      for(let pg=1;pg<=50;pg++){
         const p=new URLSearchParams({pagina:pg,limite:100,dataInicial,dataFinal});
         sits.forEach(id=>p.append("idsSituacoes[]",id));
         try{
           const r=await bling(`/pedidos/vendas?${p.toString()}`);
+          // fallback sem filtro de situação se retornar vazio na primeira página
+          if(pg===1&&(!r.data||r.data.length===0)){
+            const p2=new URLSearchParams({pagina:1,limite:100,dataInicial,dataFinal});
+            const r2=await bling(`/pedidos/vendas?${p2.toString()}`);
+            if(r2.data?.length) { todos.push(...r2.data); break; }
+          }
           const arr=r.data||[];
           todos.push(...arr);
           if(arr.length<100) break;
-          await new Promise(r=>setTimeout(r,400));
+          if(pg%3===0) await new Promise(r=>setTimeout(r,400)); // delay a cada 3 páginas
         }catch(e){ break; }
       }
       return todos;
@@ -850,7 +859,7 @@ app.get("/api/pedidos", async (req, res) => {
   try {
     const p = new URLSearchParams();
     p.set("pagina", req.query.pagina || 1);
-    p.set("limite", req.query.limite || 50);
+    p.set("limite", req.query.limite || 100);
     if (req.query.idsSituacoes){
       // suporta múltiplos ids separados por vírgula
       String(req.query.idsSituacoes).split(",").forEach(id=>p.append("idsSituacoes[]", id.trim()));

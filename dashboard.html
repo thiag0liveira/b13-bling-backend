@@ -107,12 +107,15 @@ function setPeriodo(p,el){
 }
 
 function getPeriodoDates(){
-  const hoje=new Date(); const fmt=d=>d.toISOString().slice(0,10);
-  if(_periodo==="hoje") return {de:fmt(hoje),ate:fmt(hoje)};
-  if(_periodo==="semana"){ const d=new Date(hoje); d.setDate(d.getDate()-6); return {de:fmt(d),ate:fmt(hoje)}; }
-  if(_periodo==="mes"){ const d=new Date(hoje.getFullYear(),hoje.getMonth(),1); return {de:fmt(d),ate:fmt(hoje)}; }
-  if(_periodo==="custom") return {de:document.getElementById("dtDe").value||fmt(hoje),ate:document.getElementById("dtAte").value||fmt(hoje)};
-  return {de:fmt(hoje),ate:fmt(hoje)};
+  // usa fuso de Brasília (UTC-3)
+  const agoraBR=new Date(Date.now()-3*60*60*1000);
+  const fmt=d=>d.toISOString().slice(0,10);
+  const hojeBR=fmt(agoraBR);
+  if(_periodo==="hoje") return {de:hojeBR,ate:hojeBR};
+  if(_periodo==="semana"){ const d=new Date(agoraBR); d.setDate(d.getDate()-6); return {de:fmt(d),ate:hojeBR}; }
+  if(_periodo==="mes"){ const d=new Date(agoraBR.getFullYear(),agoraBR.getMonth(),1); return {de:fmt(d),ate:hojeBR}; }
+  if(_periodo==="custom") return {de:document.getElementById("dtDe").value||hojeBR,ate:document.getElementById("dtAte").value||hojeBR};
+  return {de:hojeBR,ate:hojeBR};
 }
 
 // destruir charts anteriores
@@ -171,10 +174,45 @@ function renderDash(d){
   <div>
     <div class="sec-title">📦 Operacional</div>
     <div class="kpi-grid">
-      <div class="kpi" style="--accent:#00aaff"><span class="ic">📦</span><div class="lb">Total de pedidos</div><div class="vl">${op.totalPedidos}</div><div class="sub">no período</div></div>
+      <div class="kpi" style="--accent:#00aaff"><span class="ic">📦</span>
+        <div class="lb">Total de pedidos</div>
+        <div class="vl">${op.totalPedidos}</div>
+        <div class="sub">${op.comparativo?.varPedidos!=null?`<span style="color:${op.comparativo.varPedidos>=0?'#2f9e6b':'#e5563f'}">${op.comparativo.varPedidos>=0?'↑':'↓'}${Math.abs(op.comparativo.varPedidos)}% vs anterior</span>`:'no período'}</div>
+      </div>
+      <div class="kpi" style="--accent:#2f9e6b"><span class="ic">💵</span>
+        <div class="lb">Total vendido</div>
+        <div class="vl" style="font-size:18px">${brl(op.comparativo?.totalAtual||0)}</div>
+        <div class="sub">${op.comparativo?.varValor!=null?`<span style="color:${op.comparativo.varValor>=0?'#2f9e6b':'#e5563f'}">${op.comparativo.varValor>=0?'↑':'↓'}${Math.abs(op.comparativo.varValor)}% vs anterior</span>`:'no período'}</div>
+      </div>
+      <div class="kpi" style="--accent:#ffd23f"><span class="ic">🛒</span>
+        <div class="lb">Produtos vendidos</div>
+        <div class="vl">${op.totalProdVendidos||0}</div>
+        <div class="sub">unidades no período</div>
+      </div>
       <div class="kpi" style="--accent:#ffd23f"><span class="ic">💰</span><div class="lb">Ticket médio</div><div class="vl">${brl(op.ticketMedio)}</div><div class="sub">por pedido</div></div>
       <div class="kpi" style="--accent:#d400ff"><span class="ic">⚠️</span><div class="lb">Com pendências</div><div class="vl">${op.comPendencia}</div><div class="sub">taxa: ${op.taxaPendencia}</div></div>
       <div class="kpi" style="--accent:#2f9e6b"><span class="ic">⏱</span><div class="lb">Tempo médio fluxo</div><div class="vl">${min2str(op.tempoMedioFluxo)}</div><div class="sub">totem → verificado</div></div>
+    </div>
+  </div>
+
+  <!-- Situações com barra de progresso -->
+  <div>
+    <div class="sec-title">📊 Situação dos Pedidos</div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px">
+      ${Object.entries(op.porStatus).sort((a,b)=>b[1]-a[1]).map(([nome,qtd])=>{
+        const valor=op.porStatusValor?.[nome]||0;
+        const pct=op.totalPedidos>0?Math.round(qtd/op.totalPedidos*100):0;
+        const cor=nome.includes("SEPARADO C/")?"#d400ff":nome.includes("SEPARADO")?"#8e42a3":nome.includes("Separação")?"#00aaff":nome.includes("AGUARDANDO")?"#ffd23f":nome.includes("Verificado")||nome.includes("Atendido")?"#2f9e6b":nome.includes("ENTREGA")?"#1f7f2a":"#514c96";
+        return `<div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+            <span style="font-weight:700">${esc(nome)}</span>
+            <span class="muted">${qtd} pedido(s) · ${brl(valor)}</span>
+          </div>
+          <div style="background:#0d0b1e;border-radius:4px;height:8px">
+            <div style="background:${cor};height:8px;border-radius:4px;width:${pct}%;transition:.5s"></div>
+          </div>
+        </div>`;
+      }).join("")}
     </div>
   </div>
 
@@ -193,10 +231,10 @@ function renderDash(d){
   <div>
     <div class="sec-title">📊 Gráficos</div>
     <div class="graf-grid">
-      <div class="graf-box"><h4>📅 Pedidos por dia</h4><canvas id="cDia"></canvas></div>
+      <div class="graf-box" style="grid-column:span 2"><h4>📅 Comparação Venda — Período Atual vs Anterior</h4><canvas id="cCompar"></canvas></div>
       <div class="graf-box"><h4>🕐 Pedidos por hora do dia</h4><canvas id="cHora"></canvas></div>
       <div class="graf-box"><h4>💳 Formas de pagamento</h4><canvas id="cForma"></canvas></div>
-      <div class="graf-box"><h4>📦 Pedidos por status</h4><canvas id="cStatus"></canvas></div>
+      <div class="graf-box" style="grid-column:span 2"><h4>🏆 Top 10 SKUs Mais Vendidos</h4><canvas id="cTop10"></canvas></div>
     </div>
   </div>
 
@@ -218,9 +256,16 @@ function renderDash(d){
   setTimeout(()=>{
     const cfg=(type,labels,datasets,opts={})=>({type,data:{labels,datasets},options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{...opts.legend}},scales:opts.scales||{}}});
 
-    // pedidos por dia
-    const cDia=document.getElementById("cDia");
-    if(cDia&&diasKeys.length) _charts.dia=new Chart(cDia,cfg("bar",diasLabels,[{label:"Pedidos",data:diasVals,backgroundColor:"rgba(255,0,130,.6)",borderColor:"#FF0082",borderWidth:1}],{legend:{display:false},scales:{x:{ticks:{color:"#9a95c9",font:{size:10}}},y:{ticks:{color:"#9a95c9"},grid:{color:"#2c2660"}}}}));
+    // gráfico comparativo valor por dia
+    const cCompar=document.getElementById("cCompar");
+    if(cCompar){
+      const todasDatas=[...new Set([...Object.keys(graf.valorPorDia||{}), ...Object.keys(graf.valorPorDiaAnt||{})])].sort();
+      const lblComp=todasDatas.map(k=>{ const [y,m,d]=k.split("-"); return `\${d}/\${m}`; });
+      _charts.compar=new Chart(cCompar,{type:"bar",data:{labels:lblComp,datasets:[
+        {label:"Período Atual",data:todasDatas.map(k=>+(graf.valorPorDia?.[k]||0).toFixed(2)),backgroundColor:"rgba(255,0,130,.7)",borderRadius:3},
+        {label:"Período Anterior",data:todasDatas.map(k=>+(graf.valorPorDiaAnt?.[k]||0).toFixed(2)),backgroundColor:"rgba(255,0,130,.2)",borderRadius:3}
+      ]},options:{responsive:true,plugins:{legend:{position:"top",labels:{color:"#9a95c9",font:{size:11}}}},scales:{x:{ticks:{color:"#9a95c9",font:{size:9}},grid:{color:"#2c2660"}},y:{ticks:{color:"#9a95c9",callback:v=>brl(v)},grid:{color:"#2c2660"}}}}});
+    }
 
     // pedidos por hora
     const cHora=document.getElementById("cHora");
@@ -230,9 +275,15 @@ function renderDash(d){
     const cForma=document.getElementById("cForma");
     if(cForma&&formaLabels.length) _charts.forma=new Chart(cForma,{type:"doughnut",data:{labels:formaLabels,datasets:[{data:formaValues,backgroundColor:cores.slice(0,formaLabels.length),borderWidth:2,borderColor:"#151233"}]},options:{responsive:true,plugins:{legend:{position:"bottom",labels:{color:"#9a95c9",font:{size:10},padding:8}}}}});
 
-    // status dos pedidos
-    const cStatus=document.getElementById("cStatus");
-    if(cStatus&&statusLabels.length) _charts.status=new Chart(cStatus,{type:"bar",data:{labels:statusLabels,datasets:[{data:statusVals,backgroundColor:statusCores,borderRadius:6}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:"#9a95c9",font:{size:9},maxRotation:30}},y:{ticks:{color:"#9a95c9"},grid:{color:"#2c2660"}}}}});
+    // Top 10 SKUs
+    const cTop10=document.getElementById("cTop10");
+    if(cTop10&&graf.top10?.length){
+      const top=graf.top10;
+      _charts.top10=new Chart(cTop10,{type:"bar",data:{
+        labels:top.map(t=>t.nome.length>30?t.nome.slice(0,30)+"…":t.nome),
+        datasets:[{data:top.map(t=>t.quantidade),backgroundColor:"rgba(255,0,130,.7)",borderRadius:4,label:"Unidades vendidas"}]
+      },options:{indexAxis:"y",responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:"#9a95c9"},grid:{color:"#2c2660"}},y:{ticks:{color:"#9a95c9",font:{size:10}},grid:{color:"#2c2660"}}}}});
+    }
   },100);
 }
 
