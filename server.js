@@ -20,6 +20,7 @@ import fs from "fs";
 import "dotenv/config";
 import path from "path";
 import { fileURLToPath } from "url";
+import crypto from "crypto";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const {
@@ -204,8 +205,7 @@ app.get("/api/situacoes",async(req,res)=>{ try{ const m=req.query.modulo; res.js
 // ---- helpers ----
 const lerJSON=(f,def={})=>{ try{return JSON.parse(fs.readFileSync(f,"utf8"));}catch{return def;} };
 const salvarJSON=(f,d)=>fs.writeFileSync(f,JSON.stringify(d));
-const crypto=await import("crypto");
-const hashSenha=(s)=>crypto.createHash("sha256").update(s+process.env.SALT||"b13salt").digest("hex");
+const hashSenha=(s)=>crypto.createHash("sha256").update(s+(process.env.SALT||"b13salt")).digest("hex");
 
 // ---- FUNCIONÁRIOS ----
 app.get("/api/funcionarios",(req,res)=>{
