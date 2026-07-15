@@ -344,43 +344,64 @@ async function verPedido(id){
   document.getElementById("modal").style.display="flex";
   document.getElementById("mbox").innerHTML=`<div class="muted">Carregando pedido…</div>`;
   try{
-    const [rPed,rPag,rLog]=await Promise.all([
+    const [rPed,rPag,rLog,rPend]=await Promise.all([
       fetch(B+"/api/pedidos/"+id).then(r=>r.json()),
       fetch(B+"/api/pagamentos/"+id).then(r=>r.json()),
       fetch(B+"/api/log/"+id).then(r=>r.json()),
+      fetch(B+"/api/pendencias").then(r=>r.json()),
     ]);
     const ped=rPed.data||rPed; const pag=rPag.data; const logItems=rLog.data||[];
+    const pendObj=(rPend.data||[]).find(x=>String(x.pedidoId)===String(id)&&x.status==="pendente");
+    const faltas=pendObj?.faltas||[];
     const total=+(ped.total||0); const pago=+(pag?.valorPago||0); const saldo=+(total-pago).toFixed(2);
+
     let pagBanner=pag?.statusPagamento==="pago"
       ?`<div class="pag-info">✅ Pago — ${brl(pago)}</div>`
-      :saldo>0?`<div class="pag-pend">💰 Pendente — falta ${brl(saldo)}</div>`:"";
-    const itens=(ped.itens||[]).map(i=>`<div class="item-row">
-      <span style="flex:1">${esc(i.descricao||i.produto?.nome||"")}</span>
-      <span class="muted">x${i.quantidade}</span>
-      <b style="width:86px;text-align:right">${brl((i.valor||0)*i.quantidade)}</b>
-    </div>`).join("");
-    const LBL={enviado_separacao_pago:"💳 Separação (pago)",enviado_separacao_sem_pagar:"▶ Separação (s/ pagar)",separacao_completa:"✅ Separação concluída",separacao_com_falta:"⚠️ Separação c/ falta",conferido_entrega:"🚚 Conferido → Entrega",conferido_retirada:"🏪 Conferido → Retirada",pagamento_registrado:"💰 Pagamento",itens_acrescentados:"➕ Acréscimo",itens_retirados:"➖ Retirada",voltou_separacao:"↩ Voltou separação",pedido_aberto_separacao:"🔓 Aberto p/ separar",pedido_liberado_separacao:"🔒 Liberado",pedido_assumido:"⚡ Assumido"};
+      :saldo>0.01?`<div class="pag-pend">💰 Pendente — falta ${brl(saldo)}</div>`:"";
+
+    // montar itens — destacar os que têm falta em vermelho
+    const itens=(ped.itens||[]).map(i=>{
+      const falta=faltas.find(f=>f.descricao===i.descricao||(f.produtoId&&f.produtoId===i.produto?.id));
+      if(falta){
+        const temQtd=falta.temQtd||0; const faltaQtd=falta.falta||0;
+        return `<div class="item-row" style="background:#3a0010;border-radius:6px;padding:5px 8px;margin-bottom:3px">
+          <span style="flex:1;color:#ffbfce">⚠️ ${esc(i.descricao||i.produto?.nome||"")}</span>
+          <span style="color:#ff8090;font-size:11px">tem ${temQtd} · faltou ${faltaQtd}</span>
+          <b style="width:86px;text-align:right;color:#ff8090">${brl((i.valor||0)*i.quantidade)}</b>
+        </div>`;
+      }
+      return `<div class="item-row">
+        <span style="flex:1">${esc(i.descricao||i.produto?.nome||"")}</span>
+        <span class="muted">x${i.quantidade}</span>
+        <b style="width:86px;text-align:right">${brl((i.valor||0)*i.quantidade)}</b>
+      </div>`;
+    }).join("");
+
+    const LBL={enviado_separacao_pago:"💳 Separação (pago)",enviado_separacao_sem_pagar:"▶ Separação (s/ pagar)",separacao_completa:"✅ Separação concluída",separacao_com_falta:"⚠️ Separação c/ falta",conferido_entrega:"🚚 Conferido → Entrega",conferido_retirada:"🏪 Conferido → Retirada",pagamento_registrado:"💰 Pagamento",itens_acrescentados:"➕ Acréscimo",itens_retirados:"➖ Retirada",voltou_separacao:"↩ Voltou separação",pedido_aberto_separacao:"🔓 Aberto p/ separar",pedido_liberado_separacao:"🔒 Liberado",pedido_assumido:"⚡ Assumido",pendencias_retiradas_seguiu:"✂️ Pendências retiradas"};
     const ult=logItems.length?logItems[logItems.length-1]:null;
     const logHtml=logItems.length?`<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <span style="font-size:11px;font-weight:800;color:#9a95c9">📋 HISTÓRICO</span>
-        <button onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.textContent=this.textContent.includes('Ver')?'Recolher':'Ver tudo (${logItems.length})'" style="background:none;border:1px solid #514c96;border-radius:5px;color:#9a95c9;font-size:10px;padding:2px 7px;cursor:pointer">Ver tudo (${logItems.length})</button>
+        <button onclick="const d=this.nextElementSibling;const open=d.style.display!=='none';d.style.display=open?'none':'block';this.textContent=open?'Ver tudo (${logItems.length})':'Recolher'" style="background:none;border:1px solid #514c96;border-radius:5px;color:#9a95c9;font-size:10px;padding:2px 7px;cursor:pointer">Ver tudo (${logItems.length})</button>
       </div>
       ${ult?`<div style="font-size:12px;padding:5px 8px;background:#0d0b1e;border-radius:6px;margin-bottom:4px"><b>${LBL[ult.evento]||esc(ult.evento)}</b>${ult.funcionarioNome?` — ${esc(ult.funcionarioNome)}`:""}<span style="color:#514c96;float:right">${new Date(ult.em).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span></div>`:""}
       <div style="display:none">${logItems.slice().reverse().map(l=>{const dt=new Date(l.em);return `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border);font-size:11px"><span>${LBL[l.evento]||esc(l.evento)}${l.funcionarioNome?` <span style="color:#9a95c9">— ${esc(l.funcionarioNome)}</span>`:""}</span><span style="color:#514c96;white-space:nowrap;margin-left:6px">${dt.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})} ${dt.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span></div>`;}).join("")}</div>
     </div>`:"";
+
     document.getElementById("mbox").innerHTML=`
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <h3>👁 Pedido ${esc(ped.numero||id)}</h3>
         <button class="btn btn-ghost" onclick="fecharModal()">✕</button></div>
       <div class="muted" style="margin-bottom:8px">${esc(ped.contato?.nome||"—")} · ${dataBR(ped.data)}</div>
       ${pagBanner}
-      <div style="max-height:40vh;overflow:auto;margin:8px 0">${itens}</div>
+      ${faltas.length?`<div class="pag-pend" style="margin-bottom:8px">⚠️ ${faltas.length} item(ns) com pendência — destacados em vermelho</div>`:""}
+      <div style="max-height:45vh;overflow:auto;margin:8px 0">${itens}</div>
       <div style="font-weight:800;color:#ffd23f;margin-bottom:8px">Total: ${brl(total)}</div>
       ${logHtml}
       <button class="btn btn-ghost" style="width:100%;margin-top:10px" onclick="fecharModal()">Fechar</button>`;
   }catch(e){ document.getElementById("mbox").innerHTML=`<div class="err">Erro ao carregar pedido</div>`; }
 }
+
 
 async function whatsAguardando(id){
   showMsg(id,`<div class="muted">Buscando pedido…</div>`);
