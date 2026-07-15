@@ -147,6 +147,7 @@ function b13RenderNav(ativo){
   const f=b13GetSession(); if(!f) return "";
   const links=[
     {href:"/operacional",label:"⚙️ Operacional",check:()=>b13Pode("ver_aguardando")||b13Pode("ver_separacao")||b13Pode("conferir")},
+    {href:"/expedicao",label:"🚚 Expedição",check:()=>b13Pode("ver_separacao")},
     {href:"/dashboard",label:"📊 Dashboard",check:()=>b13Pode("ver_dashboard")},
     {href:"/gestao",label:"📋 Gestão",check:()=>b13Pode("editar_pedido")},
     {href:"/listas",label:"📄 Listas",check:()=>b13Pode("ver_listas")},

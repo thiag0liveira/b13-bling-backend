@@ -276,13 +276,19 @@ function montarBotoes(p,aba,pago,parcial){
   const id=p.id; const sit=p.situacao?.id;
   // ABA: aguardando
   if(sit===SIT.AGUARDANDO){
-    const btnSep=PODE("enviar_separacao")?`<button class="btn btn-blue" onclick="enviarSep(${id},false)">▶ Enviar sem pagar</button>`:"";
-    const btnPag=PODE("receber_pagamento")?`<button class="btn btn-grn" onclick="abrirPagamento(${id},${p.total})">💰 Receber e enviar</button>`:"";
-    return btnPag+btnSep;
+    const btnSep=PODE("enviar_separacao")?`<button class="btn btn-blue" onclick="enviarSep(${id},false)">▶ Separar sem pagar</button>`:"";
+    const btnPag=PODE("receber_pagamento")?`<button class="btn btn-grn" onclick="abrirPagamento(${id},${p.total})">💰 Receber e Separar</button>`:"";
+    const btnVer=`<button class="btn btn-ghost" onclick="verPedido(${id})">👁 Ver pedido</button>`;
+    const btnEdit=PODE("editar_pedido")?`<button class="btn btn-ghost" onclick="abrirEditar(${id})">✏️ Editar</button>`:"";
+    const btnWhats=`<button class="btn btn-ghost" style="background:#075e54" onclick="whatsAguardando(${id})">🟢 WhatsApp</button>`;
+    return `<div style="display:flex;gap:6px;flex-wrap:wrap;width:100%">${btnPag}${btnSep}${btnVer}${btnEdit}${btnWhats}</div>`;
   }
   // ABA: em separação
   if(sit===SIT.EM_SEP){
-    return PODE("editar_pedido")?`<button class="btn btn-ghost" onclick="abrirEditar(${id})">✏️ Editar pedido</button>`:"";
+    const sep=seps[String(id)];
+    const btnVoltar=(!sep&&PODE("editar_pedido"))?`<button class="btn btn-yellow" onclick="voltarAguardando(${id})">↩ Voltar para aguardando</button>`:"";
+    const quem=sep?`<div style="font-size:11px;color:#00aaff;margin-top:4px">🔧 ${esc(sep.funcionarioNome)} separando</div>`:"";
+    return btnVoltar+quem;
   }
   // ABA: c/ pendências
   if(sit===SIT.SEP_PEND){
@@ -309,6 +315,32 @@ function fecharModal(){
   if(window._confHeartbeat){ clearInterval(window._confHeartbeat); window._confHeartbeat=null; }
 }
 function showMsg(id,html){ const el=document.getElementById("msg-"+id); if(el) el.innerHTML=html; }
+
+async function voltarAguardando(id){
+  if(!confirm("Voltar o pedido para Aguardando Separação?")) return;
+  showMsg(id,`<div class="muted">Voltando…</div>`);
+  try{
+    const r=await fetch(B+"/api/pedidos/"+id+"/situacao",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({idSituacao:SIT.AGUARDANDO,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome})});
+    const j=await r.json();
+    if(r.ok&&!j.erro) await carregar();
+    else showMsg(id,`<div class="err">${esc(j.erro||"Erro")}</div>`);
+  }catch(e){ showMsg(id,`<div class="err">Erro de conexão</div>`); }
+}
+
+async function whatsAguardando(id){
+  // busca detalhes do pedido
+  showMsg(id,`<div class="muted">Buscando pedido…</div>`);
+  try{
+    const r=await fetch(B+"/api/pedidos/"+id); const j=await r.json(); const ped=j.data||j;
+    const tel=(ped.contato?.celular||ped.contato?.telefone||"").replace(/\D/g,"");
+    if(!tel){ showMsg(id,`<div class="err">Telefone não encontrado</div>`); return; }
+    const num=tel.startsWith("55")?tel:"55"+tel;
+    const itens=(ped.itens||[]).map(i=>`- ${i.descricao||i.produto?.nome||"Produto"}: ${i.quantidade} un`).join("\n");
+    const msg=`Olá${ped.contato?.nome?" "+ped.contato.nome:""}! Seu pedido *${ped.numero||id}* foi recebido na B13 Bebidas. ✅\n\n*Itens do pedido:*\n${itens}\n\n*Total: R$ ${Number(ped.total||0).toFixed(2).replace(".",",")}*\n\nEm breve entraremos em contato! 😊`;
+    showMsg(id,"");
+    window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`,"_blank");
+  }catch(e){ showMsg(id,`<div class="err">Erro ao buscar pedido</div>`); }
+}
 
 async function enviarSep(id,comPagamento){
   showMsg(id,`<div class="muted">Enviando…</div>`);

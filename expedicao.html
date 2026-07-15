@@ -82,7 +82,7 @@ async function loginFunc(){
 }
 function sairFunc(){ FUNC=null; if(typeof b13ClearSession==="function") b13ClearSession(); S=novoEstado(); render(); }
 
-let S={ logado:false, tela:"fila", pedidos:[], sel:null, conf:[], telefone:"", sugestao:"", faltas:[], msg:"", carregando:false, soVisualizacao:false, _heartbeat:null };
+let S={ logado:false, tela:"fila", pedidos:[], sel:null, conf:[], telefone:"", sugestao:"", faltas:[], msg:"", carregando:false, soVisualizacao:false, _heartbeat:null, _seps:{} };
 try{ if(localStorage.getItem("b13exp")==="ok") S.logado=true; }catch(e){}
 let timer=null;
 
@@ -125,9 +125,19 @@ function telaPrincipal(app){
 }
 function filaColuna(){
   const lista = S.carregando && !S.pedidos.length ? `<div class="muted">Carregando…</div>`
-    : (S.pedidos.length ? S.pedidos.map((p,ix)=>`<div class="card" style="${S.sel&&S.sel.id===p.id?'border-color:var(--mag)':''}"><div class="pos">${ix+1}</div>
-        <div class="info"><div class="n">Pedido ${esc(p.numero||p.id)}</div><div class="c">${esc(p.contato?.nome||"—")} · ${dataBR(p.data)}</div></div>
-        <button class="btn ${S.sel&&S.sel.id===p.id?'btn-grn':'btn-mag'}" onclick="separar(${p.id})">${S.sel&&S.sel.id===p.id?'Separando':'Separar'}</button></div>`).join("")
+    : (S.pedidos.length ? S.pedidos.map((p,ix)=>{
+        const sep=(S._seps||{})[String(p.id)];
+        const meu=sep&&sep.funcionarioId===FUNC?.id;
+        const outro=sep&&!meu;
+        return `<div class="card" style="${S.sel&&S.sel.id===p.id?'border-color:var(--mag)':''}"><div class="pos">${ix+1}</div>
+        <div class="info">
+          <div class="n">Pedido ${esc(p.numero||p.id)}</div>
+          <div class="c">${esc(p.contato?.nome||"—")} · ${dataBR(p.data)}</div>
+          ${sep?`<div style="font-size:10px;color:${meu?'#2f9e6b':'#00aaff'};margin-top:2px">${meu?'✅ Você está separando':'🔧 '+esc(sep.funcionarioNome)}</div>`:''}
+        </div>
+        <button class="btn ${meu?'btn-grn':outro?'btn-yellow':'btn-mag'}" onclick="separar(${p.id})">
+          ${meu?'Separando':outro?'👁 Ver':'Separar'}</button></div>`;
+      }).join("")
       : `<div class="ok">Nenhum pedido em separação. 👍</div>`);
   return `<div class="colhead">Fila de separação <span class="muted">(${S.pedidos.length})</span></div>${lista}`;
 }
@@ -200,9 +210,13 @@ function fecharPedido(){ S.sel=null; S.conf=[]; S.msg=""; render(); }
 async function carregarFila(silent){
   if(!silent){ S.carregando=true; render(); }
   try{
-    const r=await fetch(BACKEND+"/api/pedidos?limite=50&idsSituacoes="+FILA); const j=await r.json();
-    const arr=(j.data||[]).slice().sort((a,b)=> (a.numero||a.id)-(b.numero||b.id)); // mais antigo primeiro
+    const [rPed,rSep]=await Promise.all([
+      fetch(BACKEND+"/api/pedidos?limite=100&idsSituacoes="+FILA).then(r=>r.json()),
+      fetch(BACKEND+"/api/separacoes").then(r=>r.json()),
+    ]);
+    const arr=(rPed.data||[]).slice().sort((a,b)=>(a.numero||a.id)-(b.numero||b.id));
     S.pedidos=arr;
+    S._seps=rSep.data||{};
   }catch(e){ if(!silent) S.msg="Erro ao carregar a fila."; }
   S.carregando=false; render();
 }
