@@ -254,9 +254,10 @@ function cardPedido(p,aba){
     </div>`;
   }
 
-  const tipoLock={separacao:"🔧 Separando",conferencia:"🔍 Conferindo",edicao:"✏️ Editando"};
-  let sepInfo=sep?`<div style="background:#0d2a3a;border:1px solid #00aaff;border-radius:7px;padding:5px 8px;font-size:11px;color:#00aaff;margin-bottom:6px;display:inline-block">
-    ${tipoLock[sep.tipo]||"🔧"}: <b>${esc(sep.funcionarioNome)}</b></div>`:"";
+  const tipoLock={separacao:"🔧",conferencia:"🔍",edicao:"✏️"};
+  const tipoNome={separacao:"separando",conferencia:"conferindo",edicao:"editando"};
+  let sepInfo=sep?`<span style="font-size:11px;color:#00aaff;background:#0d2a3a;border:1px solid #00aaff;border-radius:5px;padding:2px 7px;display:inline-block;margin-bottom:6px">
+    ${tipoLock[sep.tipo]||"🔧"} <b>${esc(sep.funcionarioNome)}</b> ${tipoNome[sep.tipo]||""}</span>`:"";
 
   const botoes=montarBotoes(p,aba,pago,parcial);
 
@@ -306,6 +307,12 @@ function montarBotoes(p,aba,pago,parcial){
 }
 
 // ---- ações ----
+function toggleLog(btn){
+  const el=document.getElementById("logCompleto"); if(!el) return;
+  const aberto=el.style.display!=="none";
+  el.style.display=aberto?"none":"block";
+  btn.textContent=aberto?`Ver tudo (${el.children.length})`:"Recolher";
+}
 function fecharModal(){
   document.getElementById("modal").style.display="none";
   if(window._confLockId && FUNC && !window._confSoVis){
@@ -316,6 +323,69 @@ function fecharModal(){
 }
 function showMsg(id,html){ const el=document.getElementById("msg-"+id); if(el) el.innerHTML=html; }
 
+async function verPedido(id){
+  document.getElementById("modal").style.display="flex";
+  document.getElementById("mbox").innerHTML=`<div class="muted">Carregando pedido…</div>`;
+  try{
+    const [rPed,rPag,rLog]=await Promise.all([
+      fetch(B+"/api/pedidos/"+id).then(r=>r.json()),
+      fetch(B+"/api/pagamentos/"+id).then(r=>r.json()),
+      fetch(B+"/api/log/"+id).then(r=>r.json()),
+    ]);
+    const ped=rPed.data||rPed; const pag=rPag.data; const logItems=rLog.data||[];
+    const total=+(ped.total||0); const pago=+(pag?.valorPago||0); const saldo=+(total-pago).toFixed(2);
+    let pagBanner=pag?.statusPagamento==="pago"
+      ?`<div class="pag-info">✅ Pago — ${brl(pago)}</div>`
+      :saldo>0?`<div class="pag-pend">💰 Pendente — falta ${brl(saldo)}</div>`:"";
+    const itens=(ped.itens||[]).map(i=>`<div class="item-row">
+      <span style="flex:1">${esc(i.descricao||i.produto?.nome||"")}</span>
+      <span class="muted">x${i.quantidade}</span>
+      <b style="width:86px;text-align:right">${brl((i.valor||0)*i.quantidade)}</b>
+    </div>`).join("");
+    const LBL={enviado_separacao_pago:"💳 Separação (pago)",enviado_separacao_sem_pagar:"▶ Separação (s/ pagar)",separacao_completa:"✅ Separação concluída",separacao_com_falta:"⚠️ Separação c/ falta",conferido_entrega:"🚚 Conferido → Entrega",conferido_retirada:"🏪 Conferido → Retirada",pagamento_registrado:"💰 Pagamento",itens_acrescentados:"➕ Acréscimo",itens_retirados:"➖ Retirada",voltou_separacao:"↩ Voltou separação",pedido_aberto_separacao:"🔓 Aberto p/ separar",pedido_liberado_separacao:"🔒 Liberado",pedido_assumido:"⚡ Assumido"};
+    const ult=logItems.length?logItems[logItems.length-1]:null;
+    const logHtml=logItems.length?`<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:11px;font-weight:800;color:#9a95c9">📋 HISTÓRICO</span>
+        <button onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.textContent=this.textContent.includes('Ver')?'Recolher':'Ver tudo (${logItems.length})'" style="background:none;border:1px solid #514c96;border-radius:5px;color:#9a95c9;font-size:10px;padding:2px 7px;cursor:pointer">Ver tudo (${logItems.length})</button>
+      </div>
+      ${ult?`<div style="font-size:12px;padding:5px 8px;background:#0d0b1e;border-radius:6px;margin-bottom:4px"><b>${LBL[ult.evento]||esc(ult.evento)}</b>${ult.funcionarioNome?` — ${esc(ult.funcionarioNome)}`:""}<span style="color:#514c96;float:right">${new Date(ult.em).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span></div>`:""}
+      <div style="display:none">${logItems.slice().reverse().map(l=>{const dt=new Date(l.em);return `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border);font-size:11px"><span>${LBL[l.evento]||esc(l.evento)}${l.funcionarioNome?` <span style="color:#9a95c9">— ${esc(l.funcionarioNome)}</span>`:""}</span><span style="color:#514c96;white-space:nowrap;margin-left:6px">${dt.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})} ${dt.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span></div>`;}).join("")}</div>
+    </div>`:"";
+    document.getElementById("mbox").innerHTML=`
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <h3>👁 Pedido ${esc(ped.numero||id)}</h3>
+        <button class="btn btn-ghost" onclick="fecharModal()">✕</button></div>
+      <div class="muted" style="margin-bottom:8px">${esc(ped.contato?.nome||"—")} · ${dataBR(ped.data)}</div>
+      ${pagBanner}
+      <div style="max-height:40vh;overflow:auto;margin:8px 0">${itens}</div>
+      <div style="font-weight:800;color:#ffd23f;margin-bottom:8px">Total: ${brl(total)}</div>
+      ${logHtml}
+      <button class="btn btn-ghost" style="width:100%;margin-top:10px" onclick="fecharModal()">Fechar</button>`;
+  }catch(e){ document.getElementById("mbox").innerHTML=`<div class="err">Erro ao carregar pedido</div>`; }
+}
+
+async function whatsAguardando(id){
+  showMsg(id,`<div class="muted">Buscando pedido…</div>`);
+  try{
+    const r=await fetch(B+"/api/pedidos/"+id); const j=await r.json(); const ped=j.data||j;
+    // busca telefone — tenta no contato direto e também via /api/contatos
+    let tel=(ped.contato?.celular||ped.contato?.telefone||ped.contato?.fone||"").replace(/\D/g,"");
+    if(!tel && ped.contato?.id){
+      try{
+        const rc=await fetch(B+"/api/contatos?doc="+encodeURIComponent(ped.contato?.numeroDocumento||ped.contato?.cpfCnpj||""));
+        const jc=await rc.json(); const cont=jc.data?.[0];
+        tel=(cont?.celular||cont?.telefone||cont?.fone||"").replace(/\D/g,"");
+      }catch(e){}
+    }
+    if(!tel){ showMsg(id,`<div class="err">Telefone não encontrado para este cliente</div>`); return; }
+    const num=tel.startsWith("55")?tel:"55"+tel;
+    const itens=(ped.itens||[]).map(i=>`- ${i.descricao||i.produto?.nome||"Produto"}: ${i.quantidade} un`).join("\n");
+    const msg=`Olá${ped.contato?.nome?" "+ped.contato.nome:""}! Seu pedido *${ped.numero||id}* foi recebido na B13 Bebidas. ✅\n\n*Itens do pedido:*\n${itens}\n\n*Total: ${brl(ped.total||0)}*\n\nEm breve entraremos em contato! 😊`;
+    showMsg(id,"");
+    window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`,"_blank");
+  }catch(e){ showMsg(id,`<div class="err">Erro ao buscar pedido</div>`); }
+}
 async function voltarAguardando(id){
   if(!confirm("Voltar o pedido para Aguardando Separação?")) return;
   showMsg(id,`<div class="muted">Voltando…</div>`);
@@ -325,21 +395,6 @@ async function voltarAguardando(id){
     if(r.ok&&!j.erro) await carregar();
     else showMsg(id,`<div class="err">${esc(j.erro||"Erro")}</div>`);
   }catch(e){ showMsg(id,`<div class="err">Erro de conexão</div>`); }
-}
-
-async function whatsAguardando(id){
-  // busca detalhes do pedido
-  showMsg(id,`<div class="muted">Buscando pedido…</div>`);
-  try{
-    const r=await fetch(B+"/api/pedidos/"+id); const j=await r.json(); const ped=j.data||j;
-    const tel=(ped.contato?.celular||ped.contato?.telefone||"").replace(/\D/g,"");
-    if(!tel){ showMsg(id,`<div class="err">Telefone não encontrado</div>`); return; }
-    const num=tel.startsWith("55")?tel:"55"+tel;
-    const itens=(ped.itens||[]).map(i=>`- ${i.descricao||i.produto?.nome||"Produto"}: ${i.quantidade} un`).join("\n");
-    const msg=`Olá${ped.contato?.nome?" "+ped.contato.nome:""}! Seu pedido *${ped.numero||id}* foi recebido na B13 Bebidas. ✅\n\n*Itens do pedido:*\n${itens}\n\n*Total: R$ ${Number(ped.total||0).toFixed(2).replace(".",",")}*\n\nEm breve entraremos em contato! 😊`;
-    showMsg(id,"");
-    window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`,"_blank");
-  }catch(e){ showMsg(id,`<div class="err">Erro ao buscar pedido</div>`); }
 }
 
 async function enviarSep(id,comPagamento){
@@ -488,21 +543,23 @@ function renderModalEditar(id,ped,itens,pag,novos,retirados,logItems){
       ${window._editSoVis?`<div class="muted" style="text-align:center;padding:8px">👁 Modo visualização — outro funcionário está editando</div>`:`<button class="btn btn-mag" style="flex:1" onclick="salvarEdicao()">💾 Salvar e voltar pra expedição</button>`}
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
     </div>
-    ${logItems.length?`<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
-      <div style="font-weight:800;font-size:12px;color:#9a95c9;margin-bottom:8px">📋 HISTÓRICO DO PEDIDO</div>
-      ${logItems.slice().reverse().map(l=>{
-        const labels={enviado_separacao_pago:"💳 Enviado pra separação (pago)",enviado_separacao_sem_pagar:"▶ Enviado pra separação (sem pagamento)",separacao_completa:"✅ Separação concluída",separacao_com_falta:"⚠️ Separação com falta",conferido_entrega:"🚚 Conferido → Entrega",conferido_retirada:"🏪 Conferido → Retirada",pagamento_registrado:"💰 Pagamento registrado",itens_acrescentados:"➕ Itens acrescentados",itens_retirados:"➖ Itens retirados",voltou_separacao:"↩ Voltou pra separação",seguiu_sem_pendencias:"✅ Seguiu sem pendências"};
-        const getDetalhe=l=>{ if(l.detalhes?.itens?.length) return `: ${l.detalhes.itens.join(", ")}`;
-          if(l.detalhes?.valor) return `: ${brl(l.detalhes.valor)}${l.detalhes.formaNome?" ("+esc(l.detalhes.formaNome)+")":""}`;
-          if(l.detalhes?.faltas?.length) return `: ${l.detalhes.faltas.map(f=>esc(f.descricao)).join(", ")}`;
-          return ""; };
-        const dt=new Date(l.em); const hora=dt.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
-        const data=dt.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
-        return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
-          <span>${labels[l.evento]||esc(l.evento)}${getDetalhe(l)} ${l.funcionarioNome?`— <b>${esc(l.funcionarioNome)}</b>`:""}</span>
-          <span style="color:#9a95c9;white-space:nowrap">${data} ${hora}</span></div>`;
-      }).join("")}
-    </div>`:""}`;
+    ${(()=>{
+      if(!logItems.length) return "";
+      const LBL2={enviado_separacao_pago:"💳 Separação (pago)",enviado_separacao_sem_pagar:"▶ Separação (s/ pagar)",separacao_completa:"✅ Separação ok",separacao_com_falta:"⚠️ c/ falta",conferido_entrega:"🚚 Entrega",conferido_retirada:"🏪 Retirada",pagamento_registrado:"💰 Pagamento",itens_acrescentados:"➕ Acréscimo",itens_retirados:"➖ Retirada",voltou_separacao:"↩ Voltou",pedido_aberto_separacao:"🔓 Aberto",pedido_liberado_separacao:"🔒 Liberado",pedido_assumido:"⚡ Assumido"};
+      const ult2=logItems[logItems.length-1];
+      const dt2=new Date(ult2.em);
+      return `<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+          <span style="font-size:11px;font-weight:800;color:#9a95c9">📋 HISTÓRICO</span>
+          <button onclick="toggleLog(this)" style="background:none;border:1px solid #514c96;border-radius:5px;color:#9a95c9;font-size:10px;padding:2px 7px;cursor:pointer">Ver tudo (${logItems.length})</button>
+        </div>
+        <div style="font-size:12px;padding:5px 8px;background:#0d0b1e;border-radius:6px;margin-bottom:4px">
+          <b>${LBL2[ult2.evento]||esc(ult2.evento)}</b>${ult2.funcionarioNome?` — ${esc(ult2.funcionarioNome)}`:""}
+          <span style="color:#514c96;float:right">${dt2.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})} ${dt2.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span>
+        </div>
+        <div id="logCompleto" style="display:none">${logItems.slice().reverse().map(l=>{const dt=new Date(l.em);return `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border);font-size:11px"><span>${LBL2[l.evento]||esc(l.evento)}${l.funcionarioNome?` <span style="color:#9a95c9">— ${esc(l.funcionarioNome)}</span>`:""}</span><span style="color:#514c96;white-space:nowrap;margin-left:6px">${dt.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})} ${dt.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span></div>`;}).join("")}</div>
+      </div>`;
+    })()}`;
 }
 
 window.retirarItem=function(ix){ window.itensEdit.splice(ix,1); const ped=window.pedidoEditOrig; renderModalEditar(window.pedidoEditId,ped,window.itensEdit,pags[String(window.pedidoEditId)],[],[],window.confLog||[]); };

@@ -272,6 +272,13 @@ app.post("/api/separacoes",(req,res)=>{
   if(lockAtual && lockAtual.funcionarioId!==funcionarioId && !assumir){
     return res.status(409).json({erro:"pedido_bloqueado",lock:lockAtual});
   }
+  // remove qualquer lock anterior deste funcionário (garante só 1 por vez)
+  Object.entries(locks).forEach(([pid,lk])=>{
+    if(lk.funcionarioId===funcionarioId && pid!==id){
+      addLog(pid,"pedido_liberado_automatico",funcionarioId,funcionarioNome,{motivo:"abriu outro pedido"});
+      delete locks[pid];
+    }
+  });
   // registra quem assumiu no log
   if(lockAtual && lockAtual.funcionarioId!==funcionarioId && assumir){
     addLog(id,"pedido_assumido",funcionarioId,funcionarioNome,{de:lockAtual.funcionarioNome,tipo});
