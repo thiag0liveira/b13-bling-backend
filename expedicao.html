@@ -91,9 +91,17 @@ const esc=(s)=>(s||"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").rep
 const soDig=(s)=>(s||"").toString().replace(/\D/g,"");
 const dataBR=(d)=>{ if(!d)return""; const p=String(d).slice(0,10).split("-"); return p.length===3?`${p[2]}/${p[1]}`:d; };
 
-function header(){ return `<div class="top"><img src="${LOGO}"><div class="t">Expedição</div><div class="sp"></div>
+function header(){
+  const sess=typeof b13GetSession==="function"?b13GetSession():null;
+  const ok=S.logado||!!sess||!!FUNC;
+  return `<div class="top"><img src="${LOGO}"><div class="t">Expedição</div><div class="sp"></div>
   ${FUNC?`<span style="color:#9a95c9;font-size:12px">👤 ${esc(FUNC.nome)}</span>`:""}
-  ${S.logado?(S.sel?`<button class="btn btn-out" onclick="fecharPedido()">Fechar pedido</button>`:"")+`<button class="btn btn-out" onclick="carregarFila()">↻</button><button class="btn btn-ghost" onclick="${FUNC?'sairFunc()':'sair()'}">Sair</button>`:""}</div>`; }
+  ${S.sel?`<button class="btn btn-out" onclick="fecharPedido()">Fechar pedido</button>`:""}
+  <button class="btn btn-out" onclick="carregarFila()">↻</button>
+  <a href="/operacional" class="btn btn-ghost" style="text-decoration:none">⚙️</a>
+  <button class="btn btn-ghost" onclick="if(typeof b13ClearSession==='function')b13ClearSession();location.href='/login'">Sair</button>
+  </div>`;
+}
 
 function render(){
   const app=document.getElementById("app");
@@ -222,6 +230,14 @@ async function carregarFila(silent){
 }
 
 async function separar(id){
+  // verifica se o funcionário já tem um pedido aberto
+  if(FUNC && !S.soVisualizacao){
+    const meuLock=Object.values(S._seps||{}).find(l=>l.funcionarioId===FUNC.id && String(l.pedidoId)!==String(id));
+    if(meuLock){
+      S.msg=`⚠️ Você já está separando o Pedido ${meuLock.pedidoId}. Conclua ou feche o pedido atual antes de abrir outro.`;
+      render(); return;
+    }
+  }
   S.msg=""; document.getElementById("app").innerHTML=header()+`<div class="wrap"><div class="muted">Abrindo pedido…</div></div>`;
   try{
     const r=await fetch(BACKEND+"/api/expedicao/pedido/"+id); const j=await r.json();
