@@ -1115,7 +1115,11 @@ app.put("/api/pedidos/:id/itens", async (req, res) => {
     }
     if(funcionarioId) addLog(String(req.params.id),"itens_editados",funcionarioId,funcionarioNome,{motivo:motivo||"edição manual",qtdItens:itens.length});
     res.json(resultado||{ok:true});
-  } catch (e) { res.status(e.status || 500).json({ erro: e.message, body: e.body }); }
+  } catch (e) {
+    // log detalhado do erro do Bling
+    console.error("PUT /itens erro:", JSON.stringify({status:e.status,msg:e.message,body:e.body}));
+    res.status(e.status || 500).json({ erro: `Bling ${e.status||500}: ${e.message}`, detalhe: e.body });
+  }
 });
 
 // Anexa uma observação ao pedido (registro de faltas na separação)
