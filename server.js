@@ -623,9 +623,12 @@ app.get("/api/analytics", async (req,res)=>{
     const valorPorDia={};
     pedidosBling.forEach(p=>{ if(p.data){ const d=p.data.slice(0,10); valorPorDia[d]=(valorPorDia[d]||0)+(p.total||0); } });
 
-    // período anterior (mesmo intervalo, antes)
+    // período anterior — mesmo número de dias, período anterior
     const durMs=tsFim-tsInicio;
-    const tsInicioAnt=tsInicio-durMs; const tsFimAnt=tsInicio-1;
+    const diasPeriodo=Math.round(durMs/86400000);
+    // se for 1 dia (hoje), compara com mesmo dia da semana anterior (7 dias atrás) como o Bling
+    const offsetAnt=diasPeriodo<=1?7*86400000:durMs;
+    const tsInicioAnt=tsInicio-offsetAnt; const tsFimAnt=tsFim-offsetAnt;
     const dataIAnt=new Date(tsInicioAnt).toISOString().slice(0,10);
     const dataFAnt=new Date(tsFimAnt).toISOString().slice(0,10);
     let pedidosAnt=[], totalAnt=0, prodVendidosAnt=0;
@@ -638,12 +641,11 @@ app.get("/api/analytics", async (req,res)=>{
     const valorPorDiaAnt={};
     pedidosAnt.forEach(p=>{ if(p.data){ const d=p.data.slice(0,10); valorPorDiaAnt[d]=(valorPorDiaAnt[d]||0)+(p.total||0); } });
 
-    // Top 10 SKUs mais vendidos — busca detalhes dos pedidos
+    // Top 10 SKUs mais vendidos — busca detalhes dos pedidos atendidos
     const skuCount={}, skuNome={};
     let totalProdVendidos=0;
-    // usa os pedidos que já temos — busca itens dos atendidos
     const pedidosAtend=pedidosBling.filter(p=>p.situacao?.id===9||p.situacao?.id===SIT.VERIFICADO);
-    for(const ped of pedidosAtend.slice(0,30)){ // limita pra não estourar rate limit
+    for(const ped of pedidosAtend.slice(0,50)){ // busca até 50 pedidos com delay
       try{
         const rp=await bling(`/pedidos/vendas/${ped.id}`);
         const itens=rp?.data?.itens||[];
@@ -656,12 +658,14 @@ app.get("/api/analytics", async (req,res)=>{
           totalProdVendidos+=qtd;
         });
       }catch(e){}
+      if(pedidosAtend.indexOf(ped)%5===4) await new Promise(r=>setTimeout(r,400));
     }
     const top10=Object.entries(skuCount).sort((a,b)=>b[1]-a[1]).slice(0,10)
       .map(([cod,qtd])=>({codigo:cod,nome:skuNome[cod]||cod,quantidade:qtd}));
 
     // comparativo
-    const totalAtual=pedidosBling.reduce((s,p)=>s+(p.total||0),0);
+    // total vendido só dos atendidos (igual ao Bling)
+    const totalAtual=pedidosBling.filter(p=>p.situacao?.id===9).reduce((s,p)=>s+(p.total||0),0);
     const varPedidos=pedidosAnt.length>0?Math.round((pedidosBling.length-pedidosAnt.length)/pedidosAnt.length*100):null;
     const varValor=totalAnt>0?Math.round((totalAtual-totalAnt)/totalAnt*100):null;
 
@@ -882,11 +886,15 @@ app.get("/api/pedidos", async (req, res) => {
     // se pedir todos (paginar=true), faz paginação automática
     if(req.query.todos==="1"){
       const todos=[];
+      // default: últimos 30 dias em fuso Brasília
+      const offsetBR=3*60*60*1000;
+      const hojeBR=new Date(Date.now()-offsetBR).toISOString().slice(0,10);
+      const inicioMes=new Date(new Date(Date.now()-offsetBR).toISOString().slice(0,8)+"01").toISOString().slice(0,10);
+      const dataIni=req.query.dataInicial||inicioMes;
+      const dataFim=req.query.dataFinal||hojeBR;
       for(let pg=1;pg<=20;pg++){
-        const p=new URLSearchParams({pagina:pg,limite:100});
+        const p=new URLSearchParams({pagina:pg,limite:100,dataInicial:dataIni,dataFinal:dataFim});
         if(req.query.idsSituacoes) String(req.query.idsSituacoes).split(",").forEach(id=>p.append("idsSituacoes[]",id.trim()));
-        if(req.query.dataInicial) p.set("dataInicial",req.query.dataInicial);
-        if(req.query.dataFinal) p.set("dataFinal",req.query.dataFinal);
         const r=await bling(`/pedidos/vendas?${p.toString()}`);
         const arr=r.data||[]; todos.push(...arr);
         if(arr.length<100) break;
