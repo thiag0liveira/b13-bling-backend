@@ -1121,13 +1121,23 @@ app.put("/api/pedidos/:id/itens", async (req, res) => {
     const STATUS_BLOQUEADOS=[SIT.EM_SEP,SIT.SEP_PEND,SIT.SEPARADO,SIT.CONF_ENTREGA,SIT.EM_ROTA];
     const precisaUnlock=STATUS_BLOQUEADOS.includes(sit);
 
+    // monta payload mínimo — sem situação (não pode mudar via PUT)
+    const tsEdit=new Date().toISOString().slice(0,16).replace('T',' ');
+    const obsBase=(ped.observacoes||"").replace(/\s*\|\s*edit\s+[\d\-: ]+$/,"").trim();
     const payload = {
-      data: ped.data, contato: { id: ped.contato?.id },
-      itens: itens.map(i => ({ produto: { id: Number(i.produtoId) }, quantidade: Number(i.quantidade), valor: Number(i.valor) })),
-      observacoes: ped.observacoes || "",
+      data: ped.data,
+      contato: { id: ped.contato?.id },
+      itens: itens.map(i => ({
+        produto: { id: Number(i.produtoId) },
+        quantidade: Number(i.quantidade),
+        valor: Number(i.valor)
+      })),
+      observacoes: obsBase ? obsBase+" | edit "+tsEdit : "edit "+tsEdit,
+      loja: ped.loja?.id ? { id: ped.loja.id } : undefined,
     };
     if (ped.transporte?.frete) payload.transporte = { fretePorConta: ped.transporte.fretePorConta ?? 0, frete: ped.transporte.frete };
     if (ped.vendedor?.id) payload.vendedor = { id: ped.vendedor.id };
+    console.log("PUT payload situacao:", ped.situacao?.id, "itens:", itens.length);
 
     let resultado;
     let fezUnlock=false;
