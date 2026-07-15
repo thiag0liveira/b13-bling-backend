@@ -1162,26 +1162,28 @@ app.put("/api/pedidos/:id/itens", async (req, res) => {
       // SEMPRE restaura o status original se fez unlock — mesmo em caso de erro
       if(fezUnlock){
         await new Promise(r=>setTimeout(r,400));
+        // determina para qual status restaurar
+        // se estava em SEP_PEND, após editar vai para EM_SEP (expedição precisa separar novamente)
+        const sitRestaurar=sit===SIT.SEP_PEND?SIT.EM_SEP:sit;
         let restaurado=false;
-        // tenta restaurar para o status original
+        console.log("Restaurando status:", sit, "→", sitRestaurar, "pedido:", req.params.id);
         for(let t=0;t<3;t++){
           try{
-            await bling(`/pedidos/vendas/${req.params.id}/situacoes/${sit}`,{method:"PATCH"});
-            console.log("Status restaurado para", sit);
+            await bling(`/pedidos/vendas/${req.params.id}/situacoes/${sitRestaurar}`,{method:"PATCH"});
+            console.log("Status restaurado para", sitRestaurar);
             restaurado=true; break;
           }catch(e){
-            console.error("Erro ao restaurar status "+sit+" tentativa "+(t+1)+":", e.message);
+            console.error("Erro ao restaurar status "+sitRestaurar+" tentativa "+(t+1)+":", e.message);
             await new Promise(r=>setTimeout(r,600*(t+1)));
           }
         }
-        // fallback: se não conseguiu restaurar, tenta AGUARDANDO SEPARAÇÃO
+        // fallback: AGUARDANDO SEPARAÇÃO
         if(!restaurado){
           try{
             await bling(`/pedidos/vendas/${req.params.id}/situacoes/${SIT.AGUARDANDO}`,{method:"PATCH"});
             console.log("Status restaurado para AGUARDANDO (fallback)");
           }catch(e){
-            console.error("Fallback também falhou:", e.message);
-            // registra no log para correção manual
+            console.error("Fallback falhou:", e.message);
             addLog(String(req.params.id),"status_nao_restaurado",null,null,{statusOriginal:sit,statusAtual:SIT_EM_DIGITACAO});
           }
         }
