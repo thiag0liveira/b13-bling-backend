@@ -1001,8 +1001,23 @@ app.post("/api/finalizar", async (req, res) => {
     // depois mover para AGUARDANDO SEPARAÇÃO
     await new Promise(r=>setTimeout(r,350)); // delay para evitar rate limit
     const pedido = await bling(`/pedidos/vendas`, { method: "POST", body: JSON.stringify(payload) });
-    // mover para status AGUARDANDO SEPARAÇÃO após criação
+    // remover parcela automática que o Bling adiciona
     const pedidoId=pedido?.data?.id;
+    if(pedidoId){
+      try{
+        await new Promise(r=>setTimeout(r,600));
+        const ped2=await bling(`/pedidos/vendas/${pedidoId}`);
+        const parcs=ped2?.data?.parcelas||[];
+        for(const parc of parcs){
+          if(parc.id){
+            await new Promise(r=>setTimeout(r,400));
+            await bling(`/pedidos/vendas/${pedidoId}/parcelas/${parc.id}`,{method:"DELETE"});
+            console.log("Parcela removida:", parc.id);
+          }
+        }
+      }catch(e){ console.log("Parcela não removida:", e.message); }
+    }
+    // mover para status AGUARDANDO SEPARAÇÃO após criação
     if(pedidoId && process.env.BLING_SITUACAO_ID){
       try{
         await new Promise(r=>setTimeout(r,400));
