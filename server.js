@@ -975,7 +975,6 @@ app.post("/api/finalizar", async (req, res) => {
       contato: { id: Number(contatoId) },
       itens: itens.map((i) => ({ produto: { id: Number(i.produtoId) }, quantidade: Number(i.quantidade), valor: Number(i.valor) })),
       observacoes: obs,
-      parcelas: [{ dias: 0, valor: 0, formasPagamento: { id: 0 } }],
     };
     if (entrega && entrega.tipo === "entrega"){
       payload.transporte = {
