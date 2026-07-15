@@ -350,10 +350,15 @@ app.post("/api/pagamentos/:id",async(req,res)=>{
     const pags=lerPag(); const id=String(req.params.id);
     if(!pags[id]) pags[id]={pedidoId:id,valorPago:0,historico:[],statusPagamento:"pendente"};
     const p=pags[id];
-    // substituir=true: re-pagamento após voltar pra aguardando — reinicia o valor
-    if(substituir){ p.valorPago=+Number(valor).toFixed(2); }
-    else { p.valorPago=+(p.valorPago+Number(valor)).toFixed(2); }
-    p.historico.push({valor:Number(valor),formaId,formaNome,obs,funcionarioId,funcionarioNome,em:Date.now(),tipo:substituir?"substituicao":"normal"});
+    // substituir=true OU se já estava pago: reinicia o valor (não soma)
+    const jaTinhaPago=(p.statusPagamento==="pago"||p.statusPagamento==="parcial")&&(p.valorPago||0)>0;
+    if(substituir||jaTinhaPago){
+      p.historico.push({valor:Number(valor),formaId,formaNome,obs,funcionarioId,funcionarioNome,em:Date.now(),tipo:"substituicao",valorAnterior:p.valorPago||0});
+      p.valorPago=+Number(valor).toFixed(2);
+    } else {
+      p.valorPago=+(p.valorPago+Number(valor)).toFixed(2);
+      p.historico.push({valor:Number(valor),formaId,formaNome,obs,funcionarioId,funcionarioNome,em:Date.now(),tipo:"normal"});
+    }
     // busca total do pedido pra comparar
     try{
       const ped=await bling(`/pedidos/vendas/${id}`); const total=ped?.data?.total||0;
@@ -380,6 +385,12 @@ app.post("/api/pagamentos/:id/resetar",(req,res)=>{
     addLog(id,"pagamento_resetado",funcionarioId,funcionarioNome,{valorAnterior:antigo});
   }
   res.json({ok:true});
+});
+
+// Buscar histórico de pagamento de um pedido específico
+app.get("/api/pagamentos/:id",(req,res)=>{
+  const pags=lerPag(); const id=String(req.params.id);
+  res.json({data:pags[id]||null});
 });
 
 // Formas de pagamento (cadastradas no sistema)
