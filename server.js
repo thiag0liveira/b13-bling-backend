@@ -998,9 +998,18 @@ app.post("/api/finalizar", async (req, res) => {
       }
     }
     if (process.env.BLING_VENDEDOR_ID) payload.vendedor = { id: Number(process.env.BLING_VENDEDOR_ID) };
-    if (process.env.BLING_SITUACAO_ID) payload.situacao = { id: Number(process.env.BLING_SITUACAO_ID) };
+    // NÃO definir situação aqui — criar em Em digitação (padrão) sem condição de pagamento
+    // depois mover para AGUARDANDO SEPARAÇÃO
     await new Promise(r=>setTimeout(r,350)); // delay para evitar rate limit
     const pedido = await bling(`/pedidos/vendas`, { method: "POST", body: JSON.stringify(payload) });
+    // mover para status AGUARDANDO SEPARAÇÃO após criação
+    const pedidoId=pedido?.data?.id;
+    if(pedidoId && process.env.BLING_SITUACAO_ID){
+      try{
+        await new Promise(r=>setTimeout(r,400));
+        await bling(`/pedidos/vendas/${pedidoId}/situacoes/${Number(process.env.BLING_SITUACAO_ID)}`,{method:"PATCH"});
+      }catch(e){ console.log("Erro ao mover status:", e.message); }
+    }
     // nota: condição de pagamento padrão deve ser removida nas configurações do Bling
     // Ajustes → Preferências → Vendas → Condição de pagamento padrão → vazio
     res.json({ ok: true, contatoId, criouContato, pedido });
