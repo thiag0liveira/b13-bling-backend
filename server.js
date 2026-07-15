@@ -1152,14 +1152,27 @@ app.put("/api/pedidos/:id/itens", async (req, res) => {
       // SEMPRE restaura o status original se fez unlock — mesmo em caso de erro
       if(fezUnlock){
         await new Promise(r=>setTimeout(r,400));
-        for(let t=0;t<5;t++){
+        let restaurado=false;
+        // tenta restaurar para o status original
+        for(let t=0;t<3;t++){
           try{
             await bling(`/pedidos/vendas/${req.params.id}/situacoes/${sit}`,{method:"PATCH"});
             console.log("Status restaurado para", sit);
-            break;
+            restaurado=true; break;
           }catch(e){
-            console.error("Erro ao restaurar status tentativa "+(t+1)+":", e.message);
-            await new Promise(r=>setTimeout(r,800*(t+1)));
+            console.error("Erro ao restaurar status "+sit+" tentativa "+(t+1)+":", e.message);
+            await new Promise(r=>setTimeout(r,600*(t+1)));
+          }
+        }
+        // fallback: se não conseguiu restaurar, tenta AGUARDANDO SEPARAÇÃO
+        if(!restaurado){
+          try{
+            await bling(`/pedidos/vendas/${req.params.id}/situacoes/${SIT.AGUARDANDO}`,{method:"PATCH"});
+            console.log("Status restaurado para AGUARDANDO (fallback)");
+          }catch(e){
+            console.error("Fallback também falhou:", e.message);
+            // registra no log para correção manual
+            addLog(String(req.params.id),"status_nao_restaurado",null,null,{statusOriginal:sit,statusAtual:SIT_EM_DIGITACAO});
           }
         }
       }
