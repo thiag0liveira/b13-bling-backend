@@ -676,18 +676,52 @@ async function confirmarRetirarSeguir(id){
     const rPag=await fetch(B+"/api/pagamentos/"+id).then(r=>r.json());
     const pag=rPag.data;
     if(pag?.statusPagamento==="pago"&&valorAbatido>0.01){
+      const valorPago=+(pag.valorPago||0); const valorNovo=+(valorPago-valorAbatido).toFixed(2);
+      const optsForma=formasPag.map(f=>`<option value="${f.id}">${esc(f.nome||f.id)}</option>`).join("");
+      window._estornoFormaId=formasPag[0]?.id||""; window._estornoFormaNome=formasPag[0]?.nome||"";
       document.getElementById("retMsg").innerHTML=`
-        <div style="background:#1c1846;border:1px solid #3a357f;border-radius:10px;padding:12px;margin-top:8px">
-          <div style="font-weight:800;margin-bottom:6px">💬 Pedido já pago — o abatimento de ${brl(valorAbatido)} vai gerar:</div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-grn" style="flex:1;font-size:12px" onclick="executarRetirarSeguir(${id},'credito',${valorAbatido})">💳 Crédito para próximo pedido</button>
-            <button class="btn btn-ghost" style="flex:1;font-size:12px" onclick="executarRetirarSeguir(${id},'registrar',${valorAbatido})">📋 Só registrar</button>
+        <div style="background:#1c1846;border:1px solid #3a357f;border-radius:10px;padding:14px;margin-top:8px">
+          <div style="font-weight:900;margin-bottom:6px;font-size:14px">💬 Pedido já foi pago</div>
+          <div style="font-size:13px;margin-bottom:10px;color:#9a95c9">
+            Valor pago: <b style="color:#fff">${brl(valorPago)}</b> &nbsp;→&nbsp;
+            Valor a pagar: <b style="color:#ffd23f">${brl(valorNovo)}</b> &nbsp;
+            Diferença: <b style="color:#ff8090">-${brl(valorAbatido)}</b>
           </div>
+          <div style="font-weight:800;margin-bottom:8px">Como resolver a diferença de ${brl(valorAbatido)}?</div>
+          <div style="display:flex;gap:8px;margin-bottom:10px">
+            <button class="btn btn-grn" style="flex:1" onclick="selecionarResolucao(this,'credito')">💳 Crédito cliente</button>
+            <button class="btn btn-yellow" style="flex:1" onclick="selecionarResolucao(this,'estorno')">↩ Estorno</button>
+            <button class="btn btn-ghost" style="flex:1" onclick="selecionarResolucao(this,'registrar')">📋 Só registrar</button>
+          </div>
+          <div id="estornoFormaBox" style="display:none;margin-bottom:10px">
+            <div style="font-size:12px;color:#9a95c9;margin-bottom:4px">Forma do estorno:</div>
+            <select onchange="window._estornoFormaId=this.value;window._estornoFormaNome=this.options[this.selectedIndex].text"
+              style="width:100%;padding:8px;background:#0f0d24;border:1px solid #514c96;border-radius:8px;color:#fff;font-size:13px">
+              ${optsForma}
+            </select>
+          </div>
+          <div id="resolucaoSel" style="font-size:12px;color:#9a95c9;margin-bottom:8px"></div>
+          <button id="btnConfirmarRetirar" class="btn btn-mag" style="width:100%;display:none"
+            onclick="executarRetirarSeguir(${id},window._resolucaoSel||'registrar',${valorAbatido})">
+            ✅ Confirmar
+          </button>
         </div>`;
       return;
     }
     await executarRetirarSeguir(id,'ok',0);
   }catch(e){ document.getElementById("retMsg").innerHTML=`<div class="err">Erro ao verificar pagamento</div>`; }
+}
+
+function selecionarResolucao(btn,tipo){
+  window._resolucaoSel=tipo;
+  document.querySelectorAll("#retMsg .btn").forEach(b=>b.style.opacity="0.5");
+  btn.style.opacity="1"; btn.style.outline="2px solid #FF0082";
+  const formaBox=document.getElementById("estornoFormaBox");
+  if(formaBox) formaBox.style.display=tipo==="estorno"?"block":"none";
+  const info=document.getElementById("resolucaoSel");
+  if(info) info.textContent=tipo==="credito"?"💳 Crédito registrado no cadastro do cliente":tipo==="estorno"?"↩ Estorno — informe a forma de pagamento do devolução":"📋 Apenas registrar a diferença";
+  const btnConf=document.getElementById("btnConfirmarRetirar");
+  if(btnConf) btnConf.style.display="block";
 }
 
 async function executarRetirarSeguir(id,resolucao,valorAbatido){
@@ -702,10 +736,13 @@ async function executarRetirarSeguir(id,resolucao,valorAbatido){
       await fetch(B+"/api/fluxo/"+id+"/confirmar-entrega",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,itensNaoEntregues:[],itensDanificados:[],valorAbatido,resolucao:"credito",clienteId:ped.contato.id,clienteNome:ped.contato.nome})}).catch(()=>{});
     }
-    await fetch(B+"/api/log/"+id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({evento:"pendencias_retiradas_seguiu",funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,detalhes:{itensAjustados:itensFiltrados.length,valorAbatido,resolucao}})}).catch(()=>{});
+    const formaEstorno=resolucao==="estorno"?{formaId:window._estornoFormaId,formaNome:window._estornoFormaNome}:null;
+    await fetch(B+"/api/log/"+id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({evento:"pendencias_retiradas_seguiu",funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,detalhes:{itensAjustados:itensFiltrados.length,valorAbatido,resolucao,formaEstorno}})}).catch(()=>{});
     fecharModal(); await carregar();
     if(resolucao==="credito") alert(`✅ Pendências retiradas!
 💳 Crédito de ${brl(valorAbatido)} registrado para ${ped?.contato?.nome||"o cliente"}.`);
+    if(resolucao==="estorno") alert(`✅ Pendências retiradas!
+↩ Estorno de ${brl(valorAbatido)} via ${window._estornoFormaNome||""}. Efetue o estorno manualmente.`);
   }catch(e){ document.getElementById("retMsg").innerHTML=`<div class="err">Erro ao salvar</div>`; }
 }
 
@@ -956,6 +993,7 @@ async function abrirConferencia(id){
     const itens=rPed.itens||[]; const ped=rPed.pedido||{}; const pag=rPag.data;
     const acr=(rAcr.data||[]).find(a=>String(a.pedidoId)===String(id)&&a.status==="pendente");
     const conf=itens.map(i=>({...i,conferido:false}));
+    window._confFoto=null; // limpa foto ao abrir nova conferência
     renderConferencia(id,ped,conf,pag,acr);
   }catch(e){ document.getElementById("mbox").innerHTML=`<div class="err">Erro ao carregar</div>`; }
 }
@@ -1002,19 +1040,50 @@ function renderConferencia(id,ped,conf,pag,acr,etapa){
       ${c.conferido?'✓':'◯'}</button>
   </div>`).join("");
 
+  const fotoPreview=window._confFoto?`<div style="margin-bottom:8px;border:2px solid #2f9e6b;border-radius:8px;overflow:hidden"><img src="${window._confFoto}" style="width:100%;max-height:120px;object-fit:cover"></div>`:"";
   document.getElementById("mbox").innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <h3>🔍 Conferência — Pedido ${esc(ped.numero||id)}</h3>
       <button class="btn btn-ghost" onclick="fecharModal()">✕</button></div>
     ${acr?`<div class="acr-box">🆕 Itens alterados — confira os destaques</div>`:""}
     ${pagBanner}
-    <div style="max-height:45vh;overflow:auto;margin:8px 0">${rows}</div>
-    <div style="color:#9a95c9;font-size:12px;margin-bottom:10px">${feitos}/${conf.length} itens conferidos</div>
+    <div style="max-height:38vh;overflow:auto;margin:8px 0">${rows}</div>
+    <div style="color:#9a95c9;font-size:12px;margin-bottom:8px">${feitos}/${conf.length} itens conferidos</div>
+    <div style="background:#0d0b1e;border:1px dashed #514c96;border-radius:8px;padding:10px;margin-bottom:8px">
+      <div style="font-size:12px;color:#9a95c9;margin-bottom:6px">📸 Foto/filmagem do pedido separado (opcional)</div>
+      ${fotoPreview}
+      <button class="btn btn-ghost" style="width:100%;font-size:12px" onclick="tirarFotoConferencia(${id})">
+        ${window._confFoto?'🔄 Trocar foto':'📷 Tirar foto / Anexar'}</button>
+    </div>
     <div id="confMsg"></div>
     <button class="btn btn-mag" style="width:100%" ${todos?"":"disabled"}
       onclick="renderConferencia(${id},window.confPed,window.confItems,window.confPag,window.confAcr,'destino')">
       ✅ PEDIDO CONFERIDO →</button>
     <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="fecharModal()">Cancelar</button>`;
+}
+
+function tirarFotoConferencia(id){
+  const input=document.createElement("input"); input.type="file"; input.accept="image/*,video/*"; input.capture="environment";
+  input.onchange=async(e)=>{
+    const file=e.target.files[0]; if(!file) return;
+    if(file.type.startsWith("video/")){
+      window._confFoto=URL.createObjectURL(file);
+    } else {
+      const canvas=document.createElement("canvas"); const img=new Image();
+      img.onload=()=>{
+        const MAX=1200; let w=img.width,h=img.height;
+        if(w>MAX){h=Math.round(h*MAX/w);w=MAX;}
+        canvas.width=w; canvas.height=h;
+        canvas.getContext("2d").drawImage(img,0,0,w,h);
+        window._confFoto=canvas.toDataURL("image/jpeg",0.8);
+        renderConferencia(id,window.confPed,window.confItems,window.confPag,window.confAcr,"itens");
+      };
+      img.src=URL.createObjectURL(file);
+      return;
+    }
+    renderConferencia(id,window.confPed,window.confItems,window.confPag,window.confAcr,"itens");
+  };
+  input.click();
 }
 
 async function confirmarDestino(id,tipo){
@@ -1027,6 +1096,11 @@ async function confirmarDestino(id,tipo){
     return;
   }
   document.getElementById("confMsg").innerHTML=`<div class="muted">Finalizando…</div>`;
+  // salvar foto da conferência no log se tiver
+  if(window._confFoto&&window._confFoto.startsWith("data:")){
+    fetch(B+"/api/log/"+id,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({evento:"foto_conferencia",funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,detalhes:{foto:window._confFoto.slice(0,100)+"..."}})}).catch(()=>{});
+  }
   try{
     const r=await fetch(B+"/api/fluxo/"+id+"/conferido",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,tipoEntrega:tipo})});
