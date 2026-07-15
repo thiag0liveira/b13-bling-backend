@@ -100,7 +100,7 @@ const esc=s=>(s||"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").repla
 const dataBR=d=>{if(!d)return"";const p=String(d).slice(0,10).split("-");return p.length===3?`${p[2]}/${p[1]}`:d;};
 
 // IDs de status (carregados do backend)
-let SIT={AGUARDANDO:818795,EM_SEP:817963,SEP_PEND:819227,SEPARADO:821590,CONF_ENTREGA:821611,VERIFICADO:24};
+let SIT={AGUARDANDO:818795,EM_SEP:817963,SEP_PEND:819227,SEPARADO:821590,CONF_ENTREGA:821611,VERIFICADO:24,EM_ROTA:820085,ATENDIDO:9};
 let FUNC=null, pedidos=[], pags={}, acrs={}, seps={}, formasPag=[], mapSit={}, timer=null;
 try{ if(typeof b13GetSession==="function"){ const sess=b13GetSession(); if(sess) FUNC=sess; } }catch(e){}
 
@@ -204,7 +204,8 @@ function render(){
   if(PODE("ver_separacao"))  colunas.push({label:"🔄 Em Separação",cor:"#00aaff",sit:SIT.EM_SEP});
   if(PODE("ver_pend"))       colunas.push({label:"⚠️ C/ Pendências",cor:"#d400ff",sit:SIT.SEP_PEND});
   if(PODE("ver_separado")||PODE("conferir")) colunas.push({label:"📦 Separados",cor:"#8e42a3",sit:SIT.SEPARADO});
-  if(PODE("conferir"))       colunas.push({label:"📦 Conf. Entrega",cor:"#1f7f2a",sit:SIT.CONF_ENTREGA});
+  if(PODE("conferir")||PODE("editar_pedido")) colunas.push({label:"🚚 Em Rota",cor:"#6d2390",sit:SIT.EM_ROTA});
+  if(PODE("editar_pedido"))  colunas.push({label:"✅ Atendidos",cor:"#2f9e6b",sit:SIT.ATENDIDO});
 
   if(!colunas.length){ app.innerHTML=top+`<div style="padding:30px;text-align:center"><div class="muted">Seu perfil não tem acesso a nenhuma fila.<br>Fale com o administrador.</div></div>`; return; }
 
@@ -313,12 +314,24 @@ function montarBotoes(p,aba,pago,parcial){
     return `<div style="display:flex;gap:6px;flex-wrap:wrap;width:100%">
       ${PODE("editar_pedido")?`<button class="btn btn-ghost" style="flex:1" onclick="abrirEditar(${id})">🔧 Resolver pendências</button>`:""}
       ${PODE("ver_pend")?`<button class="btn btn-yellow" style="flex:1" onclick="enviarSepNovamente(${id})">↩ Voltar separação</button>`:""}
-      ${PODE("ver_pend")?`<button class="btn btn-mag" style="flex:1" onclick="retirarPendenciasESeguir(${id})">✂️ Retirar e seguir</button>`:""}
+      ${PODE("ver_pend")?`<button class="btn btn-grn" style="flex:1" onclick="retirarPendenciasESeguir(${id})">✂️ Retirar pendências e confirmar</button>`:""}
     </div>`;
   }
   // ABA: separados — conferente
   if(sit===SIT.SEPARADO && PODE("conferir")){
     return `<button class="btn btn-mag" onclick="abrirConferencia(${id})">🔍 Conferir pedido</button>`;
+  }
+  // ABA: em rota
+  if(sit===SIT.EM_ROTA){
+    const pag2=pags[String(id)]; const pago2=pag2?.statusPagamento==="pago";
+    return `<div style="display:flex;gap:6px;flex-wrap:wrap;width:100%">
+      ${!pago2&&PODE("receber_pagamento")?`<button class="btn btn-grn" onclick="abrirPagamentoRota(${id},${p.total})">💰 Receber pagamento</button>`:""}
+      <button class="btn btn-blue" onclick="abrirConfirmarEntrega(${id})">📦 Confirmar entrega</button>
+    </div>`;
+  }
+  // ABA: atendidos
+  if(sit===SIT.ATENDIDO){
+    return `<div class="muted" style="margin-top:4px;font-size:11px">✅ Entregue</div>`;
   }
   return "";
 }
@@ -330,6 +343,185 @@ function toggleLog(btn){
   el.style.display=aberto?"none":"block";
   btn.textContent=aberto?`Ver tudo (${el.children.length})`:"Recolher";
 }
+// ---- PAGAMENTO EM ROTA ----
+function abrirPagamentoRota(id,total){
+  _parcelas=[{valor:Number(total).toFixed(2),formaId:formasPag[0]?.id||"",formaNome:formasPag[0]?.nome||"",obs:""}];
+  window._pagTotal=Number(total);
+  // reutiliza o mesmo modal de pagamento mas sem enviar pra separação
+  const opts=formasPag.map(f=>`<option value="${f.id}">${esc(f.nome||f.id)}</option>`).join("");
+  const somaParcelas=_parcelas.reduce((s,p)=>s+parseFloat(p.valor||0),0);
+  document.getElementById("modal").style.display="flex";
+  renderModalPagRota(id,total);
+}
+function renderModalPagRota(id,total){
+  const somaParcelas=+_parcelas.reduce((s,p)=>s+parseFloat(p.valor||0),0).toFixed(2);
+  const diff=+(Number(total)-somaParcelas).toFixed(2);
+  const rows=_parcelas.map((p,ix)=>`
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <span style="font-size:11px;color:#9a95c9;min-width:20px">${ix+1}</span>
+      <input type="number" step="0.01" value="${p.valor}" style="width:110px;padding:8px;background:#0f0d24;border:1px solid #514c96;border-radius:8px;color:#fff;font-size:13px"
+        onchange="_parcelas[${ix}].valor=this.value;renderModalPagRota(${id},${total})">
+      <select style="flex:1;padding:8px;background:#0f0d24;border:1px solid #514c96;border-radius:8px;color:#fff;font-size:12px"
+        onchange="_parcelas[${ix}].formaId=this.value;_parcelas[${ix}].formaNome=this.options[this.selectedIndex].text">
+        ${formasPag.map(f=>`<option value="${f.id}" ${f.id==p.formaId?'selected':''}>${esc(f.nome||f.id)}</option>`).join("")}
+      </select>
+      ${_parcelas.length>1?`<button onclick="_parcelas.splice(${ix},1);renderModalPagRota(${id},${total})" style="background:none;border:none;color:#ff8090;cursor:pointer;font-size:18px">✕</button>`:""}
+    </div>`).join("");
+  document.getElementById("mbox").innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3>💰 Receber Pagamento — Entrega</h3><span style="color:#ffd23f;font-weight:900">${brl(total)}</span></div>
+    ${rows}
+    <button class="btn btn-ghost" style="width:100%;margin-bottom:10px;font-size:12px"
+      onclick="_parcelas.push({valor:'${diff>0?diff.toFixed(2):'0.00'}',formaId:formasPag[0]?.id||'',formaNome:formasPag[0]?.nome||'',obs:''});renderModalPagRota(${id},${total})">
+      + Adicionar parcela${diff>0?` (falta ${brl(diff)})`:''}</button>
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-bottom:10px;font-size:13px">
+      <span>Total:</span><b style="color:${Math.abs(diff)<0.01?'#2f9e6b':diff<0?'#e5563f':'#ffd23f'}">${brl(somaParcelas)} ${Math.abs(diff)<0.01?'✅':diff>0?`(falta ${brl(diff)})`:''}</b></div>
+    <div id="pMsgRota"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-grn" style="flex:1" onclick="confirmarPagRota(${id},${total})">✅ Confirmar pagamento</button>
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button></div>`;
+}
+async function confirmarPagRota(id,total){
+  const totalParcelas=+_parcelas.reduce((s,p)=>s+parseFloat(p.valor||0),0).toFixed(2);
+  const diff=+(totalParcelas-Number(total)).toFixed(2);
+  if(Math.abs(diff)>0.01){ document.getElementById("pMsgRota").innerHTML=`<div class="err">❌ Valor não confere com o total (${brl(totalParcelas)} ≠ ${brl(total)})</div>`; return; }
+  document.getElementById("pMsgRota").innerHTML=`<div class="muted">Registrando…</div>`;
+  try{
+    const r=await fetch(B+"/api/pagamentos/"+id,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({valor:totalParcelas,formaId:_parcelas[0]?.formaId,formaNome:_parcelas[0]?.formaNome,parcelas:_parcelas,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome})});
+    const j=await r.json();
+    if(r.ok&&j.ok){ fecharModal(); await carregar(); }
+    else document.getElementById("pMsgRota").innerHTML=`<div class="err">${esc(j.erro||"Erro")}</div>`;
+  }catch(e){ document.getElementById("pMsgRota").innerHTML=`<div class="err">Erro de conexão</div>`; }
+}
+
+// ---- CONFIRMAR ENTREGA (EM ROTA → ATENDIDO) ----
+async function abrirConfirmarEntrega(id){
+  document.getElementById("modal").style.display="flex";
+  document.getElementById("mbox").innerHTML=`<div class="muted">Carregando pedido…</div>`;
+  try{
+    const [rPed,rPag]=await Promise.all([
+      fetch(B+"/api/pedidos/"+id).then(r=>r.json()),
+      fetch(B+"/api/pagamentos/"+id).then(r=>r.json()),
+    ]);
+    const ped=rPed.data||rPed; const pag=rPag.data;
+    const pago=pag?.statusPagamento==="pago";
+    window._entregaPed=ped; window._entregaPag=pag;
+    window._itensOcorrencia=[];
+    renderConfirmarEntrega(id,ped,pag,[]);
+  }catch(e){ document.getElementById("mbox").innerHTML=`<div class="err">Erro ao carregar</div>`; }
+}
+
+function renderConfirmarEntrega(id,ped,pag,ocorrencias){
+  const pago=pag?.statusPagamento==="pago";
+  const total=+(ped.total||0); const pago_val=+(pag?.valorPago||0);
+  const valOcorr=ocorrencias.reduce((s,o)=>s+(o.valorItem||0),0);
+  const saldoFinal=+(total-valOcorr).toFixed(2);
+  const itens=(ped.itens||[]).map((it,ix)=>{
+    const ocorr=ocorrencias.find(o=>o.ix===ix);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span style="flex:1;${ocorr?'color:#ff8090;text-decoration:line-through':''}">${esc(it.descricao||it.produto?.nome||"")}</span>
+      <span class="muted">x${it.quantidade}</span>
+      <span style="width:80px;text-align:right">${brl((it.valor||0)*it.quantidade)}</span>
+      ${ocorr
+        ?`<span style="font-size:10px;color:#ff8090;padding:2px 6px;background:#3a0010;border-radius:5px">${ocorr.tipo==="danificado"?"📷 Danif.":"📦 N.Entregue"}</span>
+          <button onclick="window._itensOcorrencia=window._itensOcorrencia.filter(o=>o.ix!==${ix});renderConfirmarEntrega(${id},window._entregaPed,window._entregaPag,window._itensOcorrencia)" style="background:none;border:none;color:#9a95c9;cursor:pointer">✕</button>`
+        :`<button class="btn btn-ghost" style="font-size:11px;padding:4px 8px" onclick="marcarOcorrencia(${id},${ix},'nao_entregue')">📦</button>
+          <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px" onclick="marcarOcorrencia(${id},${ix},'danificado')">📷</button>`}
+    </div>`;
+  }).join("");
+
+  document.getElementById("mbox").innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h3>📦 Confirmar Entrega — Pedido ${esc(ped.numero||id)}</h3>
+      <button class="btn btn-ghost" onclick="fecharModal()">✕</button></div>
+    <div class="muted" style="margin-bottom:8px">${esc(ped.contato?.nome||"—")}</div>
+    ${pago?`<div class="pag-info">✅ Pago — ${brl(pago_val)}</div>`:`<div class="pag-pend">💰 Pagamento pendente</div>`}
+    <div style="font-size:12px;color:#9a95c9;margin:6px 0">📦 = Não entregue  &nbsp; 📷 = Danificado (foto obrigatória)</div>
+    <div style="max-height:35vh;overflow:auto;margin:8px 0">${itens}</div>
+    ${ocorrencias.length?`<div style="background:#3a0010;border-radius:8px;padding:8px;margin-bottom:8px;font-size:13px">
+      ⚠️ ${ocorrencias.length} ocorrência(s) — abatimento: <b style="color:#ff8090">${brl(valOcorr)}</b>
+      <br>Novo total: <b>${brl(saldoFinal)}</b></div>`:``}
+    <div id="entregaMsg"></div>
+    <button class="btn btn-grn" style="width:100%;margin-top:8px" onclick="concluirEntrega(${id})">
+      ✅ Confirmar entrega${ocorrencias.length?` com ${ocorrencias.length} ocorrência(s)`:""}</button>
+    <button class="btn btn-ghost" style="width:100%;margin-top:6px" onclick="fecharModal()">Cancelar</button>`;
+}
+
+async function marcarOcorrencia(id,ix,tipo){
+  const it=window._entregaPed?.itens?.[ix]; if(!it) return;
+  if(tipo==="danificado"){
+    // pede foto
+    const input=document.createElement("input"); input.type="file"; input.accept="image/*"; input.capture="environment";
+    input.onchange=async(e)=>{
+      const file=e.target.files[0]; if(!file) return;
+      // converte pra base64 (comprimido)
+      const canvas=document.createElement("canvas"); const img=new Image();
+      const url=URL.createObjectURL(file);
+      img.onload=()=>{
+        const MAX=800; let w=img.width,h=img.height;
+        if(w>MAX){h=Math.round(h*MAX/w);w=MAX;}
+        canvas.width=w; canvas.height=h;
+        canvas.getContext("2d").drawImage(img,0,0,w,h);
+        const foto=canvas.toDataURL("image/jpeg",0.7);
+        window._itensOcorrencia=window._itensOcorrencia.filter(o=>o.ix!==ix);
+        window._itensOcorrencia.push({ix,tipo:"danificado",descricao:it.descricao||it.produto?.nome||"",quantidade:it.quantidade,valorItem:+(it.valor||0)*it.quantidade,foto});
+        renderConfirmarEntrega(id,window._entregaPed,window._entregaPag,window._itensOcorrencia);
+      };
+      img.src=url;
+    };
+    input.click();
+  } else {
+    window._itensOcorrencia=window._itensOcorrencia.filter(o=>o.ix!==ix);
+    window._itensOcorrencia.push({ix,tipo:"nao_entregue",descricao:it.descricao||it.produto?.nome||"",quantidade:it.quantidade,valorItem:+(it.valor||0)*it.quantidade});
+    renderConfirmarEntrega(id,window._entregaPed,window._entregaPag,window._itensOcorrencia);
+  }
+}
+
+async function concluirEntrega(id){
+  const ped=window._entregaPed; const pag=window._entregaPag;
+  const ocorr=window._itensOcorrencia||[];
+  // verificar se itens danificados têm foto
+  const semFoto=ocorr.filter(o=>o.tipo==="danificado"&&!o.foto);
+  if(semFoto.length){ document.getElementById("entregaMsg").innerHTML=`<div class="err">📷 Foto obrigatória para ${semFoto.length} item(ns) danificado(s)</div>`; return; }
+  const valorAbatido=+ocorr.reduce((s,o)=>s+(o.valorItem||0),0).toFixed(2);
+  // se tem abatimento e já pagou, perguntar sobre crédito/estorno
+  if(valorAbatido>0 && pag?.statusPagamento==="pago"){
+    document.getElementById("entregaMsg").innerHTML=`
+      <div style="background:#1c1846;border:1px solid #3a357f;border-radius:10px;padding:12px;margin-top:8px">
+        <div style="font-weight:800;margin-bottom:8px">💬 Como resolver o abatimento de ${brl(valorAbatido)}?</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-grn" style="flex:1" onclick="finalizarEntrega(${id},'credito')">💳 Crédito para próximo pedido</button>
+          <button class="btn btn-ghost" style="flex:1" onclick="finalizarEntrega(${id},'registrar')">📋 Só registrar</button>
+        </div>
+      </div>`;
+  } else {
+    await finalizarEntrega(id, valorAbatido>0?"registrar":"ok");
+  }
+}
+
+async function finalizarEntrega(id,resolucao){
+  document.getElementById("entregaMsg").innerHTML=`<div class="muted">Finalizando…</div>`;
+  const ped=window._entregaPed; const ocorr=window._itensOcorrencia||[];
+  const valorAbatido=+ocorr.reduce((s,o)=>s+(o.valorItem||0),0).toFixed(2);
+  try{
+    const r=await fetch(B+"/api/fluxo/"+id+"/confirmar-entrega",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,
+        itensNaoEntregues:ocorr.filter(o=>o.tipo==="nao_entregue"),
+        itensDanificados:ocorr.filter(o=>o.tipo==="danificado").map(o=>({...o,foto:o.foto?o.foto.slice(0,50)+"...":null})),
+        valorAbatido,resolucao,
+        clienteId:ped.contato?.id,clienteNome:ped.contato?.nome
+      })});
+    const j=await r.json();
+    if(r.ok&&j.ok){
+      fecharModal(); await carregar();
+      if(resolucao==="credito") alert(`✅ Entrega confirmada!
+💳 Crédito de ${brl(valorAbatido)} registrado para ${ped.contato?.nome||"o cliente"}.`);
+    } else document.getElementById("entregaMsg").innerHTML=`<div class="err">${esc(j.erro||"Erro")}</div>`;
+  }catch(e){ document.getElementById("entregaMsg").innerHTML=`<div class="err">Erro de conexão</div>`; }
+}
+
 function fecharModal(){
   document.getElementById("modal").style.display="none";
   if(window._confLockId && FUNC && !window._confSoVis){
@@ -476,18 +668,44 @@ async function retirarPendenciasESeguir(id){
 }
 
 async function confirmarRetirarSeguir(id){
-  document.getElementById("retMsg").innerHTML=`<div class="muted">Salvando…</div>`;
+  document.getElementById("retMsg").innerHTML=`<div class="muted">Verificando…</div>`;
+  const itensFiltrados=window.itensEdit.filter(i=>i.quantidade>0);
+  const valorAbatido=+window.itensEdit.filter(i=>i._ajustado&&i.quantidade<(i.quantidadeOriginal||i.quantidade))
+    .reduce((s,i)=>s+((i.quantidadeOriginal||i.quantidade)-i.quantidade)*(i.valor||0),0).toFixed(2);
   try{
-    // salva os itens ajustados
-    const itensFiltrados=window.itensEdit.filter(i=>i.quantidade>0);
+    const rPag=await fetch(B+"/api/pagamentos/"+id).then(r=>r.json());
+    const pag=rPag.data;
+    if(pag?.statusPagamento==="pago"&&valorAbatido>0.01){
+      document.getElementById("retMsg").innerHTML=`
+        <div style="background:#1c1846;border:1px solid #3a357f;border-radius:10px;padding:12px;margin-top:8px">
+          <div style="font-weight:800;margin-bottom:6px">💬 Pedido já pago — o abatimento de ${brl(valorAbatido)} vai gerar:</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-grn" style="flex:1;font-size:12px" onclick="executarRetirarSeguir(${id},'credito',${valorAbatido})">💳 Crédito para próximo pedido</button>
+            <button class="btn btn-ghost" style="flex:1;font-size:12px" onclick="executarRetirarSeguir(${id},'registrar',${valorAbatido})">📋 Só registrar</button>
+          </div>
+        </div>`;
+      return;
+    }
+    await executarRetirarSeguir(id,'ok',0);
+  }catch(e){ document.getElementById("retMsg").innerHTML=`<div class="err">Erro ao verificar pagamento</div>`; }
+}
+
+async function executarRetirarSeguir(id,resolucao,valorAbatido){
+  document.getElementById("retMsg").innerHTML=`<div class="muted">Salvando…</div>`;
+  const itensFiltrados=window.itensEdit.filter(i=>i.quantidade>0);
+  const ped=window.pedidoEditOrig;
+  try{
     await fetch(B+"/api/pedidos/"+id+"/itens",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({itens:itensFiltrados.map(i=>({produtoId:i.produtoId,quantidade:i.quantidade,valor:i.valor}))})});
-    // muda para SEPARADO
     await fetch(B+"/api/pedidos/"+id+"/situacao",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({idSituacao:SIT.SEPARADO,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome})});
-    // marca pendência como resolvida
     await fetch(B+"/api/pendencias/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"resolvido"})}).catch(()=>{});
-    // log
-    await fetch(B+"/api/log/"+id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({evento:"pendencias_retiradas_seguiu",funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,detalhes:{itensAjustados:itensFiltrados.length}})}).catch(()=>{});
+    if(resolucao==="credito"&&valorAbatido>0&&ped?.contato?.id){
+      await fetch(B+"/api/fluxo/"+id+"/confirmar-entrega",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,itensNaoEntregues:[],itensDanificados:[],valorAbatido,resolucao:"credito",clienteId:ped.contato.id,clienteNome:ped.contato.nome})}).catch(()=>{});
+    }
+    await fetch(B+"/api/log/"+id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({evento:"pendencias_retiradas_seguiu",funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,detalhes:{itensAjustados:itensFiltrados.length,valorAbatido,resolucao}})}).catch(()=>{});
     fecharModal(); await carregar();
+    if(resolucao==="credito") alert(`✅ Pendências retiradas!
+💳 Crédito de ${brl(valorAbatido)} registrado para ${ped?.contato?.nome||"o cliente"}.`);
   }catch(e){ document.getElementById("retMsg").innerHTML=`<div class="err">Erro ao salvar</div>`; }
 }
 
@@ -780,8 +998,8 @@ function renderConferencia(id,ped,conf,pag,acr,etapa){
     ${c.imagem?`<img src="${esc(c.imagem)}" onerror="this.remove()">`:""}
     <div class="iinfo"><div class="inome">${esc(c.descricao)}</div>
       <div class="iqtd">${c.quantidade} un · est ${c.estoque??'?'}</div></div>
-    <button class="btn ${c.conferido?'btn-grn':'btn-ghost'}" style="flex-shrink:0;min-width:44px" onclick="window.confItems[${ix}].conferido=!window.confItems[${ix}].conferido;renderConferencia(${id},window.confPed,window.confItems,window.confPag,window.confAcr,'itens')">
-      ${c.conferido?'✅':'○'}</button>
+    <button style="flex-shrink:0;min-width:48px;height:48px;border-radius:10px;border:2px solid ${c.conferido?'#2f9e6b':'#514c96'};background:${c.conferido?'#183a2a':'transparent'};cursor:pointer;font-size:20px;color:${c.conferido?'#2f9e6b':'#514c96'};transition:.15s" onclick="window.confItems[${ix}].conferido=!window.confItems[${ix}].conferido;renderConferencia(${id},window.confPed,window.confItems,window.confPag,window.confAcr,'itens')">
+      ${c.conferido?'✓':'◯'}</button>
   </div>`).join("");
 
   document.getElementById("mbox").innerHTML=`

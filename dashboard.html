@@ -222,6 +222,7 @@ function renderDash(d){
     <div class="kpi-grid">
       <div class="kpi" style="--accent:#2f9e6b"><span class="ic">✅</span><div class="lb">Total recebido</div><div class="vl" style="font-size:20px">${brl(fin.totalRecebido)}</div><div class="sub">no período</div></div>
       <div class="kpi" style="--accent:#e5563f"><span class="ic">⏳</span><div class="lb">Pendente receber</div><div class="vl" style="font-size:20px">${brl(fin.totalPendente)}</div><div class="sub">pedidos em aberto</div></div>
+      ${fin.perdas?.total>0?`<div class="kpi" style="--accent:#e5563f"><span class="ic">⚠️</span><div class="lb">Perdas em entrega</div><div class="vl" style="font-size:18px;color:#ff8090">${brl(fin.perdas.total)}</div><div class="sub">📦 ${brl(fin.perdas.naoEntregue)} n.entregue · 📷 ${brl(fin.perdas.danificado)} danif.</div></div>`:""}
       ${Object.entries(fin.porForma).slice(0,4).map(([k,v])=>`
         <div class="kpi" style="--accent:#ffd23f"><div class="lb">${esc(k)}</div><div class="vl" style="font-size:18px">${brl(v)}</div><div class="sub">forma de pagamento</div></div>`).join("")}
     </div>

@@ -40,7 +40,9 @@ const FUNC_FILE = `${DATA_DIR}/funcionarios.json`;
 const SEP_FILE  = `${DATA_DIR}/separacoes.json`;
 const ACRS_FILE = `${DATA_DIR}/acrescimos.json`;
 const PAG_FILE  = `${DATA_DIR}/pagamentos.json`;
-const LOG_FILE  = `${DATA_DIR}/log_pedidos.json`;
+const LOG_FILE    = `${DATA_DIR}/log_pedidos.json`;
+const PERDAS_FILE = `${DATA_DIR}/perdas.json`;
+const CREDITOS_FILE = `${DATA_DIR}/creditos_clientes.json`;
 const FPAG_FILE = `${DATA_DIR}/formas_pagamento.json`;
 const FPAG_DEFAULT=[
   {id:1,nome:"Dinheiro"},{id:2,nome:"PIX"},{id:3,nome:"Cartão de Crédito"},
@@ -51,10 +53,12 @@ const FPAG_DEFAULT=[
 const SIT = {
   AGUARDANDO:   Number(process.env.SIT_AGUARDANDO   || 818795),
   EM_SEP:       Number(process.env.SIT_EM_SEP       || 817963),
-  SEPARADO:     Number(process.env.SIT_SEPARADO     || 0),   // criar no Bling
-  SEP_PEND:     Number(process.env.SIT_SEP_PEND     || 0),   // criar no Bling
-  CONF_ENTREGA: Number(process.env.SIT_CONF_ENTREGA || 0),   // criar no Bling
+  SEPARADO:     Number(process.env.SIT_SEPARADO     || 821590),
+  SEP_PEND:     Number(process.env.SIT_SEP_PEND     || 819227),
+  CONF_ENTREGA: Number(process.env.SIT_CONF_ENTREGA || 821611),
   VERIFICADO:   Number(process.env.SIT_VERIFICADO   || 24),
+  EM_ROTA:      Number(process.env.SIT_EM_ROTA      || 820085),
+  ATENDIDO:     Number(process.env.SIT_ATENDIDO     || 9),
 };
 
 const app = express();
@@ -455,20 +459,48 @@ app.post("/api/fluxo/:id/seguir-sem-pendencias",async(req,res)=>{
   }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
 });
 
-// Conferência final (conferente)
+// Conferência final → entrega vai pra EM ROTA, retirada vai pra ATENDIDO
 app.post("/api/fluxo/:id/conferido",async(req,res)=>{
   try{
-    const {funcionarioId}=req.body||{}; const id=String(req.params.id);
+    const {funcionarioId,funcionarioNome,tipoEntrega}=req.body||{}; const id=String(req.params.id);
     const pags=lerPag(); const pag=pags[id]||null;
     const pago=pag&&pag.statusPagamento==="pago";
-    const novoSit=pago?SIT.VERIFICADO:SIT.CONF_ENTREGA;
-    if(!novoSit) return res.status(400).json({erro:"Status não configurado."});
+    const novoSit=tipoEntrega==="retirada"?SIT.ATENDIDO:SIT.EM_ROTA;
+    if(!novoSit) return res.status(400).json({erro:"Status EM_ROTA ou ATENDIDO não configurado."});
     await bling(`/pedidos/vendas/${id}/situacoes/${novoSit}`,{method:"PATCH"});
-    const tipoConf=req.body?.tipoEntrega||"entrega";
-    addLog(id, `conferido_${tipoConf}`, req.body?.funcionarioId, req.body?.funcionarioNome, {pago,valorPago:pag?.valorPago||0,valorPedido:pag?.valorPedido||0,tipoEntrega:tipoConf});
-    res.json({ok:true,situacao:novoSit,pago,valorPago:pag?.valorPago||0,valorPedido:pag?.valorPedido||0});
+    addLog(id,`conferido_${tipoEntrega||"entrega"}`,funcionarioId,funcionarioNome,{pago,valorPago:pag?.valorPago||0,tipoEntrega,novoSit});
+    res.json({ok:true,situacao:novoSit,pago,valorPago:pag?.valorPago||0,valorPedido:pag?.valorPedido||0,tipoEntrega});
   }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
 });
+
+// Confirmar entrega (EM ROTA → ATENDIDO) com registro de perdas/danos
+app.post("/api/fluxo/:id/confirmar-entrega",async(req,res)=>{
+  try{
+    const {funcionarioId,funcionarioNome,itensNaoEntregues,itensDanificados,valorAbatido,resolucao,clienteId,clienteNome}=req.body||{};
+    const id=String(req.params.id);
+    if(itensNaoEntregues?.length||itensDanificados?.length){
+      const perdas=lerJSON(PERDAS_FILE,{});
+      perdas[id]={pedidoId:id,itensNaoEntregues:itensNaoEntregues||[],itensDanificados:itensDanificados||[],valorAbatido:valorAbatido||0,resolucao,funcionarioId,funcionarioNome,em:Date.now()};
+      salvarJSON(PERDAS_FILE,perdas);
+      if(resolucao==="credito"&&clienteId&&valorAbatido>0){
+        const creds=lerJSON(CREDITOS_FILE,{});
+        const cId=String(clienteId);
+        if(!creds[cId]) creds[cId]={clienteId:cId,clienteNome:clienteNome||"",credito:0,historico:[]};
+        creds[cId].credito=+((creds[cId].credito||0)+valorAbatido).toFixed(2);
+        creds[cId].historico.push({pedidoId:id,valor:valorAbatido,em:Date.now(),motivo:"dano/não entregue"});
+        salvarJSON(CREDITOS_FILE,creds);
+      }
+      addLog(id,"entrega_com_ocorrencia",funcionarioId,funcionarioNome,{valorAbatido,resolucao,naoEntregues:itensNaoEntregues?.length||0,danificados:itensDanificados?.length||0});
+    }
+    await bling(`/pedidos/vendas/${id}/situacoes/${SIT.ATENDIDO}`,{method:"PATCH"});
+    addLog(id,"entrega_confirmada",funcionarioId,funcionarioNome,{});
+    res.json({ok:true});
+  }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
+});
+
+app.get("/api/perdas",(req,res)=>res.json({data:Object.values(lerJSON(PERDAS_FILE,{}))}));
+app.get("/api/perdas/:id",(req,res)=>{ const p=lerJSON(PERDAS_FILE,{}); res.json({data:p[String(req.params.id)]||null}); });
+app.get("/api/creditos/:clienteId",(req,res)=>{ const c=lerJSON(CREDITOS_FILE,{}); res.json({data:c[String(req.params.clienteId)]||null}); });
 
 // Retorna os status configurados (para uso no frontend)
 app.get("/api/fluxo/status",(req,res)=>res.json({sit:SIT}));
@@ -488,6 +520,10 @@ app.get("/api/analytics", async (req,res)=>{
     // carrega todos os dados
     const log=lerLog(); const pags=lerPag();
     const pend=lerPend(); const acrs=lerJSON(ACRS_FILE,{});
+    const perdas=Object.values(lerJSON(PERDAS_FILE,{})).filter(p=>dentroP(p.em||0));
+    const totalPerdas=+perdas.reduce((s,p)=>s+(p.valorAbatido||0),0).toFixed(2);
+    const perdaNaoEntregue=+perdas.reduce((s,p)=>s+(p.itensNaoEntregues||[]).reduce((ss,i)=>ss+(i.valorItem||0),0),0).toFixed(2);
+    const perdaDanificado=+perdas.reduce((s,p)=>s+(p.itensDanificados||[]).reduce((ss,i)=>ss+(i.valorItem||0),0),0).toFixed(2);
 
     // busca pedidos do Bling no período (usa datas em horário de Brasília)
     const dataI=de||new Date(agora-30*24*60*60*1000-offsetBR).toISOString().slice(0,10);
@@ -683,7 +719,8 @@ app.get("/api/analytics", async (req,res)=>{
         ticketMedio:+ticketMedio.toFixed(2), porStatus, porStatusValor,
         tempoMedioFluxo:tempoFluxoCount>0?+(tempoFluxoTotal/tempoFluxoCount).toFixed(1):null,
         comparativo:{totalPedidosAnt:pedidosAnt.length,varPedidos,totalAtual:+totalAtual.toFixed(2),totalAnt:+totalAnt.toFixed(2),varValor} },
-      financeiro:{ totalRecebido:+totalRecebido.toFixed(2), totalPendente:+totalPendente.toFixed(2), porForma },
+      financeiro:{ totalRecebido:+totalRecebido.toFixed(2), totalPendente:+totalPendente.toFixed(2), porForma,
+        perdas:{total:totalPerdas,naoEntregue:perdaNaoEntregue,danificado:perdaDanificado,ocorrencias:perdas.length} },
       funcionarios:Object.values(porFunc).map(f=>({...f,
         tempoMedioSep:f.tempoSepCount>0?+(f.tempoSepTotal/f.tempoSepCount).toFixed(1):null,
         taxaPendencia:f.pedidosSeparados>0?Math.round(f.pendencias/f.pedidosSeparados*100):0
