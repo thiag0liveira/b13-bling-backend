@@ -331,8 +331,16 @@ async function assumirPedido(){
 }
 
 async function concluir(){
-  const faltas=S.conf.filter(c=>c.estado==='falta' && (c.quantidade-c.temQtd)>0)
-    .map(c=>({descricao:c.descricao, produtoId:c.produtoId, quantidade:c.quantidade, temQtd:c.temQtd, falta:c.quantidade-c.temQtd}));
+  const faltas=S.conf
+    .filter(c=>c.estado==='falta' && c.confirmado)
+    .map(c=>({descricao:c.descricao, produtoId:c.produtoId, quantidade:c.quantidade, temQtd:c.temQtd||0, falta:Math.max(0,c.quantidade-(c.temQtd||0))}))
+    .filter(f=>f.falta>0);
+  console.log("Faltas ao concluir:", JSON.stringify(faltas));
+  // confirma antes de concluir se tiver faltas
+  if(faltas.length>0){
+    const lista=faltas.map(f=>f.descricao+": tem "+f.temQtd+" de "+f.quantidade).join("\n");
+    if(!confirm("Concluir com "+faltas.length+" item(ns) com falta?\n\n"+lista+"\n\nO pedido ira para SEPARADO C/ PENDENCIAS.")) return;
+  }
   S.msg="Salvando…"; render();
   try{
     const r=await fetch(BACKEND+"/api/fluxo/"+S.sel.id+"/separacao-concluida",{method:"POST",headers:{"Content-Type":"application/json"},
