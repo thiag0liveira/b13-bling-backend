@@ -259,6 +259,16 @@ app.post("/api/funcionarios/login",(req,res)=>{
 const LOCK_TIMEOUT=15*60*1000; // 15 minutos
 function lerLocks(){ return lerJSON(SEP_FILE,{}); }
 function salvarLocks(o){ salvarJSON(SEP_FILE,o); }
+function liberarLock(pedidoId, funcionarioId, funcionarioNome, motivo){
+  const locks=lerLocks(); const id=String(pedidoId);
+  if(locks[id]){
+    addLog(id,`pedido_liberado_${locks[id].tipo||"separacao"}`,
+      funcionarioId||locks[id].funcionarioId,
+      funcionarioNome||locks[id].funcionarioNome,
+      {motivo:motivo||"concluido"});
+    delete locks[id]; salvarLocks(locks);
+  }
+}
 function limparLocksExpirados(){
   const locks=lerLocks(); const agora=Date.now(); let mudou=false;
   Object.entries(locks).forEach(([id,lock])=>{ if(agora-lock.ultimaAtividade>LOCK_TIMEOUT){ delete locks[id]; mudou=true; } });
@@ -429,8 +439,8 @@ app.post("/api/fluxo/:id/separacao-concluida",async(req,res)=>{
     }
     await bling(`/pedidos/vendas/${id}/situacoes/${novoSit}`,{method:"PATCH"});
     addLog(id, temFalta?"separacao_com_falta":"separacao_completa", req.body?.funcionarioId, req.body?.funcionarioNome, temFalta?{faltas}:{});
-    // remove da fila de separação
-    const seps=lerJSON(SEP_FILE,{}); delete seps[id]; salvarJSON(SEP_FILE,seps);
+    // libera o lock ao concluir separação
+    liberarLock(id, req.body?.funcionarioId, req.body?.funcionarioNome, "separacao_concluida");
     res.json({ok:true,situacao:novoSit,temFalta});
   }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
 });
@@ -467,8 +477,8 @@ app.post("/api/fluxo/:id/seguir-sem-pendencias",async(req,res)=>{
     const id=String(req.params.id); const {funcionarioId,funcionarioNome}=req.body||{};
     if(!SIT.SEPARADO) return res.status(400).json({erro:"Status SEPARADO não configurado"});
     await bling(`/pedidos/vendas/${id}/situacoes/${SIT.SEPARADO}`,{method:"PATCH"});
-    // limpa pendências
     const pend=lerPend(); if(pend[id]){pend[id].status="resolvido";salvarPend(pend);}
+    liberarLock(id,funcionarioId,funcionarioNome,"seguiu_sem_pendencias");
     addLog(id,"seguiu_sem_pendencias",funcionarioId,funcionarioNome,{});
     res.json({ok:true});
   }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
@@ -483,6 +493,7 @@ app.post("/api/fluxo/:id/conferido",async(req,res)=>{
     const novoSit=tipoEntrega==="retirada"?SIT.ATENDIDO:SIT.EM_ROTA;
     if(!novoSit) return res.status(400).json({erro:"Status EM_ROTA ou ATENDIDO não configurado."});
     await bling(`/pedidos/vendas/${id}/situacoes/${novoSit}`,{method:"PATCH"});
+    liberarLock(id,funcionarioId,funcionarioNome,"conferido");
     addLog(id,`conferido_${tipoEntrega||"entrega"}`,funcionarioId,funcionarioNome,{pago,valorPago:pag?.valorPago||0,tipoEntrega,novoSit});
     res.json({ok:true,situacao:novoSit,pago,valorPago:pag?.valorPago||0,valorPedido:pag?.valorPedido||0,tipoEntrega});
   }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
@@ -508,6 +519,7 @@ app.post("/api/fluxo/:id/confirmar-entrega",async(req,res)=>{
       addLog(id,"entrega_com_ocorrencia",funcionarioId,funcionarioNome,{valorAbatido,resolucao,naoEntregues:itensNaoEntregues?.length||0,danificados:itensDanificados?.length||0});
     }
     await bling(`/pedidos/vendas/${id}/situacoes/${SIT.ATENDIDO}`,{method:"PATCH"});
+    liberarLock(id,funcionarioId,funcionarioNome,"entrega_confirmada");
     addLog(id,"entrega_confirmada",funcionarioId,funcionarioNome,{});
     res.json({ok:true});
   }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
@@ -1026,6 +1038,11 @@ app.get("/api/pendencias", (req, res) => {
   const lista = Object.values(o).filter(p => p.status !== "resolvido").sort((a,b)=>a.em-b.em);
   res.json({ data: lista });
 });
+// busca pendência de um pedido específico (inclui resolvidas — para resolver pendências)
+app.get("/api/pendencias/:id", (req, res) => {
+  const o = lerPend(); const p = o[String(req.params.id)];
+  res.json({ data: p||null });
+});
 app.patch("/api/pendencias/:id", (req, res) => {
   const o = lerPend(); const p = o[String(req.params.id)];
   if (!p) return res.status(404).json({ erro: "pendência não encontrada" });
@@ -1104,7 +1121,7 @@ app.put("/api/pedidos/:id/itens", async (req, res) => {
     let resultado;
     try{
       // tenta editar direto (funciona para alguns status)
-      await new Promise(r=>setTimeout(r,400));
+      await new Promise(r=>setTimeout(r,200));
       resultado=await blingComRetry(`/pedidos/vendas/${req.params.id}`,{ method:"PUT", body:JSON.stringify(payload) });
     }catch(e1){
       if(e1.status!==400||!precisaUnlock) throw e1;
@@ -1112,9 +1129,9 @@ app.put("/api/pedidos/:id/itens", async (req, res) => {
       console.log("Tentando via Em Digitação para editar itens, sit atual:", sit);
       try{
         await blingComRetry(`/pedidos/vendas/${req.params.id}/situacoes/${SIT_EM_DIGITACAO}`,{method:"PATCH"});
-        await new Promise(r=>setTimeout(r,1000));
+        await new Promise(r=>setTimeout(r,400));
         resultado=await blingComRetry(`/pedidos/vendas/${req.params.id}`,{ method:"PUT", body:JSON.stringify(payload) });
-        await new Promise(r=>setTimeout(r,800));
+        await new Promise(r=>setTimeout(r,400));
         // restaura status original
         try{ await blingComRetry(`/pedidos/vendas/${req.params.id}/situacoes/${sit}`,{method:"PATCH"}); }catch(e){}
       }catch(e2){

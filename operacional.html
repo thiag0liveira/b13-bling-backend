@@ -652,11 +652,12 @@ async function retirarPendenciasESeguir(id){
   try{
     const [rPed,rPend]=await Promise.all([
       fetch(B+"/api/pedidos/"+id).then(r=>r.json()),
-      fetch(B+"/api/pendencias").then(r=>r.json()),
+      fetch(B+"/api/pendencias/"+id).then(r=>r.json()), // busca direto pelo ID (inclui resolvidas)
     ]);
     const ped=rPed.data||rPed;
-    const pend=(rPend.data||[]).find(x=>String(x.pedidoId)===String(id));
+    const pend=rPend.data||null;
     const faltas=pend?.faltas||[];
+    console.log("Pendências encontradas para pedido",id,":",faltas.length,"faltas",pend);
     window.itensEdit=(ped.itens||[]).map(i=>{
       const falta=faltas.find(f=>f.produtoId===i.produto?.id||f.descricao===i.descricao);
       return {produtoId:i.produto?.id,descricao:i.descricao||i.produto?.nome||"",

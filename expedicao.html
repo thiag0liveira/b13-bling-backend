@@ -226,7 +226,9 @@ function voltarFila(){
     fetch(BACKEND+"/api/separacoes/"+S.sel.id,{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({funcionarioId:FUNC.id,funcionarioNome:FUNC.nome,tipo:"separacao"})}).catch(()=>{});
   }
   if(S._heartbeat){ clearInterval(S._heartbeat); S._heartbeat=null; }
-  S.sel=null; S.conf=[]; S.msg=""; S.soVisualizacao=false; carregarFila();
+  S.sel=null; S.conf=[]; S.msg=""; S.soVisualizacao=false; S._tevePendencia=false; S._faltas=[];
+  S._seps={}; // força recarregar locks
+  carregarFila();
 }
 function fecharPedido(){ S.sel=null; S.conf=[]; S.msg=""; render(); }
 
