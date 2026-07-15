@@ -154,6 +154,7 @@ async function iniciar(){
 
 async function carregar(){
   try{
+    if(!window._logsCache) window._logsCache={};
     const sits=[SIT.AGUARDANDO,SIT.EM_SEP,SIT.SEP_PEND,SIT.SEPARADO,SIT.CONF_ENTREGA].filter(Boolean).join(",");
     const [rPed,rPag,rAcr,rSep,rPend]=await Promise.all([
       fetch(B+"/api/pedidos?limite=100&idsSituacoes="+sits).then(r=>r.json()),
@@ -164,6 +165,12 @@ async function carregar(){
     ]);
     pedidos=rPed.data||[];
     pags=rPag.data||{};
+    // carrega logs dos pedidos Em Separação em background (para saber origem)
+    pedidos.filter(p=>p.situacao?.id===SIT.EM_SEP).forEach(p=>{
+      if(!window._logsCache[String(p.id)]){
+        fetch(B+"/api/log/"+p.id).then(r=>r.json()).then(j=>{ window._logsCache[String(p.id)]=j.data||[]; }).catch(()=>{});
+      }
+    });
     const acrsArr=rAcr.data||[]; acrs={}; acrsArr.filter(a=>a.status==="pendente").forEach(a=>acrs[String(a.pedidoId)]=a);
     seps=rSep.data||{};
     const pendArr=rPend.data||[]; window._pends={}; pendArr.filter(x=>x.status==="pendente").forEach(x=>window._pends[String(x.pedidoId)]=x);
@@ -262,11 +269,15 @@ function cardPedido(p,aba){
   const botoes=montarBotoes(p,aba,pago,parcial);
 
   return `<div class="pcard ${acr?'acrescimo':''}">
-    <div class="ph"><div class="info">
-      <div class="pn">Pedido ${esc(p.numero||p.id)} <span class="badge" style="background:${corSit(p.situacao?.id)}">${esc(nomeSit(p.situacao?.id))}</span></div>
-      <div class="pc">${esc(p.contato?.nome||"—")} · ${dataBR(p.data)}</div>
-      <div class="ptot">${brl(p.total)}</div>
-    </div></div>
+    <div class="ph" onclick="verPedido(${p.id})" style="cursor:pointer" title="Clique para ver detalhes">
+      <div class="info">
+        <div class="pn">Pedido ${esc(p.numero||p.id)} <span class="badge" style="background:${corSit(p.situacao?.id)}">${esc(nomeSit(p.situacao?.id))}</span>
+          <span style="font-size:10px;color:#514c96;margin-left:4px">👁</span>
+        </div>
+        <div class="pc">${esc(p.contato?.nome||"—")} · ${dataBR(p.data)}</div>
+        <div class="ptot">${brl(p.total)}</div>
+      </div>
+    </div>
     ${pagInfo}${pendInfo||""}${acrInfo}${sepInfo}
     <div class="acts">${botoes}</div>
     <div id="msg-${p.id}"></div>
@@ -279,24 +290,30 @@ function montarBotoes(p,aba,pago,parcial){
   if(sit===SIT.AGUARDANDO){
     const btnSep=PODE("enviar_separacao")?`<button class="btn btn-blue" onclick="enviarSep(${id},false)">▶ Separar sem pagar</button>`:"";
     const btnPag=PODE("receber_pagamento")?`<button class="btn btn-grn" onclick="abrirPagamento(${id},${p.total})">💰 Receber e Separar</button>`:"";
-    const btnVer=`<button class="btn btn-ghost" onclick="verPedido(${id})">👁 Ver pedido</button>`;
     const btnEdit=PODE("editar_pedido")?`<button class="btn btn-ghost" onclick="abrirEditar(${id})">✏️ Editar</button>`:"";
     const btnWhats=`<button class="btn btn-ghost" style="background:#075e54" onclick="whatsAguardando(${id})">🟢 WhatsApp</button>`;
-    return `<div style="display:flex;gap:6px;flex-wrap:wrap;width:100%">${btnPag}${btnSep}${btnVer}${btnEdit}${btnWhats}</div>`;
+    return `<div style="display:flex;gap:6px;flex-wrap:wrap;width:100%">${btnPag}${btnSep}${btnEdit}${btnWhats}</div>`;
   }
   // ABA: em separação
   if(sit===SIT.EM_SEP){
     const sep=seps[String(id)];
-    const btnVoltar=(!sep&&PODE("editar_pedido"))?`<button class="btn btn-yellow" onclick="voltarAguardando(${id})">↩ Voltar para aguardando</button>`:"";
     const quem=sep?`<div style="font-size:11px;color:#00aaff;margin-top:4px">🔧 ${esc(sep.funcionarioNome)} separando</div>`:"";
+    if(sep) return quem; // travado — não mostra botões
+    // descobre origem pelo log
+    const logPed=window._logsCache?.[String(id)]||[];
+    const veioDepend=logPed.some(e=>e.evento==="separacao_com_falta");
+    if(!PODE("editar_pedido")) return quem;
+    const btnVoltar=veioDepend
+      ?`<button class="btn btn-yellow" onclick="voltarPendencias(${id})">↩ Voltar para pendências</button>`
+      :`<button class="btn btn-yellow" onclick="voltarAguardando(${id})">↩ Voltar para aguardando</button>`;
     return btnVoltar+quem;
   }
   // ABA: c/ pendências
   if(sit===SIT.SEP_PEND){
     return `<div style="display:flex;gap:6px;flex-wrap:wrap;width:100%">
-      ${PODE("editar_pedido")?`<button class="btn btn-ghost" style="flex:1" onclick="abrirEditar(${id})">✏️ Editar e voltar</button>`:""}
+      ${PODE("editar_pedido")?`<button class="btn btn-ghost" style="flex:1" onclick="abrirEditar(${id})">🔧 Resolver pendências</button>`:""}
       ${PODE("ver_pend")?`<button class="btn btn-yellow" style="flex:1" onclick="enviarSepNovamente(${id})">↩ Voltar separação</button>`:""}
-      ${PODE("ver_pend")?`<button class="btn btn-grn" style="flex:1" onclick="seguirSemPendencias(${id})">✅ Seguir sem pendências</button>`:""}
+      ${PODE("ver_pend")?`<button class="btn btn-mag" style="flex:1" onclick="retirarPendenciasESeguir(${id})">✂️ Retirar e seguir</button>`:""}
     </div>`;
   }
   // ABA: separados — conferente
@@ -386,6 +403,73 @@ async function whatsAguardando(id){
     window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`,"_blank");
   }catch(e){ showMsg(id,`<div class="err">Erro ao buscar pedido</div>`); }
 }
+async function voltarPendencias(id){
+  if(!confirm("Voltar o pedido para Separado C/ Pendências?")) return;
+  showMsg(id,`<div class="muted">Voltando…</div>`);
+  try{
+    const r=await fetch(B+"/api/pedidos/"+id+"/situacao",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({idSituacao:SIT.SEP_PEND,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome})});
+    const j=await r.json();
+    if(r.ok&&!j.erro){ delete window._logsCache?.[String(id)]; await carregar(); }
+    else showMsg(id,`<div class="err">${esc(j.erro||"Erro")}</div>`);
+  }catch(e){ showMsg(id,`<div class="err">Erro de conexão</div>`); }
+}
+
+async function retirarPendenciasESeguir(id){
+  // abre o pedido para editar e ajustar as quantidades antes de marcar como SEPARADO
+  document.getElementById("modal").style.display="flex";
+  document.getElementById("mbox").innerHTML=`<div class="muted">Carregando pendências…</div>`;
+  try{
+    const [rPed,rPend]=await Promise.all([
+      fetch(B+"/api/pedidos/"+id).then(r=>r.json()),
+      fetch(B+"/api/pendencias").then(r=>r.json()),
+    ]);
+    const ped=rPed.data||rPed;
+    const pend=(rPend.data||[]).find(x=>String(x.pedidoId)===String(id));
+    const faltas=pend?.faltas||[];
+    // monta itens ajustados (subtrai as faltas)
+    const itensAjust=(ped.itens||[]).map(i=>{
+      const falta=faltas.find(f=>f.produtoId===i.produto?.id||f.descricao===i.descricao);
+      const qtdTem=falta?falta.temQtd:i.quantidade;
+      return {...i,quantidadeOriginal:i.quantidade,quantidade:qtdTem,_ajustado:!!falta&&qtdTem<i.quantidade};
+    }).filter(i=>i.quantidade>0);
+    window.itensEdit=itensAjust.map(i=>({produtoId:i.produto?.id,descricao:i.descricao||i.produto?.nome||"",quantidade:i.quantidade,valor:i.valor,_orig:!i._ajustado}));
+    window.pedidoEditId=id; window.pedidoEditOrig=ped;
+    const rows=itensAjust.map((i,ix)=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span style="flex:1;${i._ajustado?'color:#ff8c00':''}">${i._ajustado?'⚠️ ':''}${esc(i.descricao||i.produto?.nome||"")}</span>
+      ${i._ajustado?`<span class="muted" style="text-decoration:line-through;font-size:11px">${i.quantidadeOriginal}</span>`:""}
+      <input type="number" min="0" value="${i.quantidade}" style="width:56px;padding:4px;background:#0f0d24;border:1px solid #514c96;border-radius:6px;color:#fff" onchange="window.itensEdit[${ix}].quantidade=+this.value">
+      <span class="muted" style="width:80px;text-align:right">${brl(i.valor*i.quantidade)}</span>
+    </div>`).join("");
+    document.getElementById("mbox").innerHTML=`
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <h3>✂️ Retirar Pendências — Pedido ${esc(ped.numero||id)}</h3>
+        <button class="btn btn-ghost" onclick="fecharModal()">✕</button></div>
+      ${faltas.length?`<div class="pag-pend" style="margin-bottom:10px">⚠️ ${faltas.length} item(ns) com falta — ajuste as quantidades abaixo</div>`:""}
+      <div style="max-height:40vh;overflow:auto">${rows}</div>
+      <div id="retMsg"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-mag" style="flex:1" onclick="confirmarRetirarSeguir(${id})">✅ Confirmar e marcar como SEPARADO</button>
+        <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      </div>`;
+  }catch(e){ document.getElementById("mbox").innerHTML=`<div class="err">Erro ao carregar</div>`; }
+}
+
+async function confirmarRetirarSeguir(id){
+  document.getElementById("retMsg").innerHTML=`<div class="muted">Salvando…</div>`;
+  try{
+    // salva os itens ajustados
+    const itensFiltrados=window.itensEdit.filter(i=>i.quantidade>0);
+    await fetch(B+"/api/pedidos/"+id+"/itens",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({itens:itensFiltrados.map(i=>({produtoId:i.produtoId,quantidade:i.quantidade,valor:i.valor}))})});
+    // muda para SEPARADO
+    await fetch(B+"/api/pedidos/"+id+"/situacao",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({idSituacao:SIT.SEPARADO,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome})});
+    // marca pendência como resolvida
+    await fetch(B+"/api/pendencias/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"resolvido"})}).catch(()=>{});
+    // log
+    await fetch(B+"/api/log/"+id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({evento:"pendencias_retiradas_seguiu",funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,detalhes:{itensAjustados:itensFiltrados.length}})}).catch(()=>{});
+    fecharModal(); await carregar();
+  }catch(e){ document.getElementById("retMsg").innerHTML=`<div class="err">Erro ao salvar</div>`; }
+}
+
 async function voltarAguardando(id){
   if(!confirm("Voltar o pedido para Aguardando Separação?")) return;
   showMsg(id,`<div class="muted">Voltando…</div>`);
