@@ -903,21 +903,38 @@ app.post("/api/finalizar", async (req, res) => {
       const achado = (busca.data || []).find((c) => soDigitos(c.numeroDocumento) === doc);
       if (achado) {
         contatoId = achado.id;
+        // busca o contato completo para saber o que já tem preenchido
+        let contatoAtual={};
+        try{ const ca=await bling(`/contatos/${contatoId}`); contatoAtual=ca?.data||{}; }catch(e){}
+        const endAtual=contatoAtual.endereco?.geral||{};
+        const end=cadastro?.endereco||{};
+
         // atualiza dados do cliente com as informações fornecidas no totem
         const atualizacao={};
-        if(telefone){ atualizacao.celular=telefone; atualizacao.telefone=telefone; }
-        if(nome) atualizacao.nome=nome;
-        const end=cadastro?.endereco||{};
-        if(end.rua||end.cep){
-          atualizacao.endereco={ geral:{
-            endereco:end.rua||"", numero:end.numero||"S/N",
-            complemento:end.complemento||"", bairro:end.bairro||"",
-            cep:soDigitos(end.cep||""), municipio:end.cidade||"",
-            uf:end.uf||"MG", pais:"Brasil"
-          }};
+        if(telefone) { atualizacao.celular=telefone; atualizacao.telefone=telefone; }
+        if(email && /\S+@\S+\.\S+/.test(email) && !contatoAtual.email) atualizacao.email=email;
+
+        // endereço: atualiza campos que estão vazios no Bling mas foram preenchidos no totem
+        const endNovo={
+          endereco: end.rua || endAtual.endereco || "",
+          numero:   end.numero || endAtual.numero || "S/N",
+          complemento: end.complemento || endAtual.complemento || "",
+          bairro:   end.bairro || endAtual.bairro || "",
+          cep:      soDigitos(end.cep||endAtual.cep||""),
+          municipio:end.cidade || endAtual.municipio || "",
+          uf:       end.uf || endAtual.uf || "MG",
+          pais:     "Brasil",
+        };
+        // só atualiza endereço se tem alguma informação nova
+        if(end.rua || end.cep || end.cidade){
+          atualizacao.endereco={ geral: endNovo };
         }
+
         if(Object.keys(atualizacao).length){
-          try{ await bling(`/contatos/${contatoId}`,{method:"PATCH",body:JSON.stringify(atualizacao)}); }catch(e){}
+          try{
+            await bling(`/contatos/${contatoId}`,{method:"PATCH",body:JSON.stringify(atualizacao)});
+            console.log("Contato atualizado:", contatoId, Object.keys(atualizacao));
+          }catch(e){ console.error("Erro ao atualizar contato:", e.message); }
         }
       } else {
         const tipo = doc.length === 14 ? "J" : "F";
@@ -956,7 +973,10 @@ app.post("/api/finalizar", async (req, res) => {
       contato: { id: Number(contatoId) },
       itens: itens.map((i) => ({ produto: { id: Number(i.produtoId) }, quantidade: Number(i.quantidade), valor: Number(i.valor) })),
       observacoes: obs,
+      // condição de pagamento vazia — sem parcelas definidas
+      // o Bling aplica o padrão da conta, mas vamos sobrescrever com objeto vazio
     };
+    // tenta remover a condição de pagamento padrão após criar o pedido
     if (entrega && entrega.tipo === "entrega"){
       payload.transporte = {
         fretePorConta: 0,
@@ -980,6 +1000,19 @@ app.post("/api/finalizar", async (req, res) => {
     if (process.env.BLING_VENDEDOR_ID) payload.vendedor = { id: Number(process.env.BLING_VENDEDOR_ID) };
     if (process.env.BLING_SITUACAO_ID) payload.situacao = { id: Number(process.env.BLING_SITUACAO_ID) };
     const pedido = await bling(`/pedidos/vendas`, { method: "POST", body: JSON.stringify(payload) });
+    // remover parcela automática que o Bling adiciona — pedido será pago pela loja no momento da separação
+    const pedidoId=pedido?.data?.id;
+    if(pedidoId){
+      try{
+        // busca as parcelas criadas automaticamente
+        const ped2=await bling(`/pedidos/vendas/${pedidoId}`);
+        const parcAutom=ped2?.data?.parcelas||[];
+        // deleta cada parcela automática
+        for(const parc of parcAutom){
+          if(parc.id) try{ await bling(`/pedidos/vendas/${pedidoId}/parcelas/${parc.id}`,{method:"DELETE"}); }catch(e){}
+        }
+      }catch(e){ console.log("Não foi possível remover parcelas automáticas:", e.message); }
+    }
     res.json({ ok: true, contatoId, criouContato, pedido });
   } catch (e) { res.status(e.status || 500).json({ erro: e.message, body: e.body }); }
 });
