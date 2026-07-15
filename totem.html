@@ -463,8 +463,10 @@ function telaCheckout(app){
           ${!temFone?'<br>📱 Telefone obrigatório':''}
           ${!temEnd?'<br>📍 Endereço obrigatório':''}
         </div>`:''}
-        <input placeholder="Nome completo*" value="${esc(S.nome)}" oninput="S.nome=this.value"
-          style="${!temNome?'border-color:#ffd23f':''}">
+        ${S.docNome
+          ? `<div style="background:#151233;border:1px solid #514c96;border-radius:10px;padding:12px;font-size:14px;font-weight:700;color:#cfc9f5">${esc(S.nome)}</div>`
+          : `<input placeholder="Nome completo*" value="${esc(S.nome)}" oninput="S.nome=this.value" style="${!temNome?'border-color:#ffd23f':''}">`
+        }
         <input placeholder="Celular / WhatsApp*" inputmode="tel" value="${esc(S.telefone)}" oninput="S.telefone=this.value"
           style="${!temFone?'border-color:#ffd23f':''}">
         ${novo?`<input placeholder="E-mail (opcional)" inputmode="email" value="${esc(S.email)}" oninput="S.email=this.value">`:''}
