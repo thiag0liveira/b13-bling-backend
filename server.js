@@ -1485,6 +1485,22 @@ app.get("/api/produto/:id", async(req,res)=>{
   try{ res.json(await bling(`/produtos/${req.params.id}`)); }
   catch(e){ res.status(e.status||500).json({erro:e.message}); }
 });
+// Debug: ver todos os campos de imagem de um produto
+app.get("/api/produto/:id/imagens-debug", async(req,res)=>{
+  try{
+    const j=await bling(`/produtos/${req.params.id}`);
+    const p=j?.data||{};
+    res.json({
+      imageUrl:p.imageUrl,
+      imageThumbnail:p.imageThumbnail,
+      imagens:p.imagens,
+      midia:p.midia,
+      foto:p.foto,
+      image:p.image,
+      camposRaiz:Object.keys(p),
+    });
+  }catch(e){ res.status(e.status||500).json({erro:e.message}); }
+});
 
 // Importar NF-e por chave de acesso via Bling → SEFAZ
 app.post("/api/nfe/importar", async (req, res) => {

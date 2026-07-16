@@ -208,50 +208,32 @@ async function abrirModal(prod){
   document.getElementById("erroSalvar").textContent="";
   document.getElementById("mTitulo").textContent=prod.nome;
   document.getElementById("modal").classList.add("open");
-  document.getElementById("mBody").innerHTML=`<div class="loading"><span class="spinner"></span>Buscando sugestões nos 3 sites…</div>`;
+  document.getElementById("mBody").innerHTML=`<div class="loading"><span class="spinner"></span>Buscando no Open Food Facts…</div>`;
 
-  const fontes=[
-    {nome:"Apoio Entrega", site:"apoioentrega.com", cor:"#e8650a"},
-    {nome:"Verdemar",      site:"loja.verdemaratevoce.com.br", cor:"#2e7d32"},
-    {nome:"Villefort",     site:"villefortentrega.com.br", cor:"#1565c0"},
+  const q=encodeURIComponent(prod.nome);
+  const buscaLinks=[
+    {nome:"Apoio Entrega", cor:"#e8650a", url:`https://www.apoioentrega.com/busca?q=${q}`},
+    {nome:"Verdemar",      cor:"#2e7d32", url:`https://www.loja.verdemaratevoce.com.br/produtos?q=${q}`},
+    {nome:"Villefort",     cor:"#1565c0", url:`https://www.villefortentrega.com.br/produtos?q=${q}`},
   ];
 
+  let sugestoes=[];
   try{
-    const resp=await fetch("https://api.anthropic.com/v1/messages",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        model:"claude-sonnet-4-6",
-        max_tokens:1000,
-        messages:[{role:"user",content:`Produto de bebida: "${prod.nome}"
+    const r=await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${q}&search_simple=1&action=process&json=1&page_size=8&lc=pt&cc=br`);
+    const j=await r.json();
+    sugestoes=(j.products||[])
+      .filter(p=>p.image_front_url||p.image_url)
+      .slice(0,8)
+      .map(p=>({
+        nome:p.product_name||p.generic_name||"",
+        imgUrl:p.image_front_url||p.image_url||"",
+        pagUrl:`https://world.openfoodfacts.org/product/${p.code}`,
+      }));
+  }catch(e){}
 
-Para cada um dos 3 sites abaixo, me dê a URL direta da imagem do produto (PNG ou JPG) e a URL da página do produto:
-1. Apoio Entrega (apoioentrega.com) - imagens em apoioentrega.vteximg.com.br/arquivos/ids/{ID}-500-500/{codigo}_0.png
-2. Verdemar (loja.verdemaratevoce.com.br)
-3. Villefort (villefortentrega.com.br)
-
-Responda APENAS JSON sem texto adicional:
-{"apoio":{"imgUrl":"URL_ou_null","paginaUrl":"URL"},"verdemar":{"imgUrl":"URL_ou_null","paginaUrl":"URL"},"villefort":{"imgUrl":"URL_ou_null","paginaUrl":"URL"}}`}]
-      })
-    });
-    const j=await resp.json();
-    const txt=(j.content?.[0]?.text||"{}").replace(/```json|```/g,"").trim();
-    let data={};
-    try{ data=JSON.parse(txt); }catch(e){}
-    renderModal(prod,[
-      {...fontes[0],...data.apoio},
-      {...fontes[1],...data.verdemar},
-      {...fontes[2],...data.villefort},
-    ]);
-  }catch(e){
-    renderModal(prod,fontes.map((f,i)=>({
-      ...f,imgUrl:null,
-      paginaUrl:[`https://www.apoioentrega.com/busca?q=${encodeURIComponent(prod.nome)}`,
-        `https://www.loja.verdemaratevoce.com.br/produtos?q=${encodeURIComponent(prod.nome)}`,
-        `https://www.villefortentrega.com.br/produtos?q=${encodeURIComponent(prod.nome)}`][i]
-    })));
-  }
+  renderModal(prod, sugestoes, buscaLinks);
 }
+
 
 function renderModal(prod, sugestoes, buscaLinks){
   const sugsHtml=sugestoes.length
