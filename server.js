@@ -1540,17 +1540,43 @@ app.post("/api/imagens/salvar", async(req,res)=>{
     const prod=prodAtual?.data||{};
     if(!prod.nome) return res.status(404).json({erro:"Produto não encontrado"});
     await new Promise(r=>setTimeout(r,400));
-    const imagensAtuais=(prod.imagens||[]).filter(i=>i.link&&i.link.trim()&&i.link!==imagemUrl);
-    const novasImagens=[{link:imagemUrl,tipoArmazenamento:"externo",validade:""},...imagensAtuais];
+    // campo correto na API v3 do Bling é midia.imagens.externas
     const payload={
       nome:prod.nome, codigo:prod.codigo||"", preco:prod.preco||0,
       tipo:prod.tipo||"P", situacao:prod.situacao||"A", formato:prod.formato||"S",
-      imagens:novasImagens,
+      midia:{
+        imagens:{
+          externas:[{link:imagemUrl},...(prod.midia?.imagens?.externas||[]).filter(i=>i.link&&i.link!==imagemUrl)]
+        }
+      },
     };
     console.log("PUT imagem produto",produtoId,imagemUrl.slice(0,60));
-    const r=await bling(`/produtos/${produtoId}`,{method:"PUT",body:JSON.stringify(payload)});
-    console.log("PUT imagem resposta:", JSON.stringify(r).slice(0,200));
-    res.json({ok:true});
+    // tenta primeiro via PUT do produto
+    let sucesso=false;
+    try{
+      const r=await bling(`/produtos/${produtoId}`,{method:"PUT",body:JSON.stringify(payload)});
+      console.log("PUT produto resposta:", JSON.stringify(r).slice(0,150));
+      // verifica se a imagem foi salva
+      await new Promise(r=>setTimeout(r,500));
+      const verificar=await bling(`/produtos/${produtoId}`);
+      const imgSalva=(verificar?.data?.imagens||[]).some(i=>i.link===imagemUrl);
+      console.log("Imagem salva no Bling:", imgSalva);
+      sucesso=imgSalva;
+    }catch(e1){ console.log("PUT produto erro:",e1.message); }
+
+    // se não salvou via PUT, tenta via endpoint de imagens (se existir)
+    if(!sucesso){
+      try{
+        await new Promise(r=>setTimeout(r,400));
+        const r2=await bling(`/produtos/${produtoId}/imagens`,{method:"POST",body:JSON.stringify({
+          link:imagemUrl, tipoArmazenamento:"externo"
+        })});
+        console.log("POST imagens resposta:", JSON.stringify(r2).slice(0,150));
+        sucesso=true;
+      }catch(e2){ console.log("POST imagens erro (pode não existir):",e2.message); }
+    }
+
+    res.json({ok:sucesso, aviso:sucesso?null:"Bling pode não ter salvo a imagem"});
   }catch(e){
     console.error("Erro PUT imagem:",e.message,JSON.stringify(e.body||"").slice(0,300));
     res.status(e.status||500).json({erro:e.message,body:e.body});
