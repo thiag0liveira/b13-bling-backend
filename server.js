@@ -1457,23 +1457,57 @@ app.get("/api/imagens/buscar", async(req,res)=>{
   try{
     const nome=(req.query.nome||"").trim();
     if(!nome) return res.status(400).json({erro:"nome obrigatório"});
-    const q=encodeURIComponent(nome+" supermercado");
-    // DuckDuckGo image search via HTML scraping
-    const url=`https://duckduckgo.com/?q=${q}&iax=images&ia=images&t=h_`;
-    const r=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}});
-    const html=await r.text();
-    // extrai URLs de imagens do JSON embutido no HTML do DDG
-    const matches=[...html.matchAll(/"thumbnail":"([^"]+)"/g)].map(m=>m[1]).filter(u=>u.startsWith("http")).slice(0,8);
-    // tenta também via vqd token
-    const vqd=(html.match(/vqd=['"]([^'"]+)['"]/)||[])[1];
-    let imgs=matches;
-    if(vqd&&imgs.length<4){
-      const r2=await fetch(`https://duckduckgo.com/i.js?q=${q}&vqd=${vqd}&f=,,,,,&p=1`,{
-        headers:{"User-Agent":"Mozilla/5.0","Referer":"https://duckduckgo.com/"}
-      });
-      const j2=await r2.json();
-      imgs=[...(j2.results||[]).map(r=>r.thumbnail||r.image).filter(Boolean).slice(0,8),...imgs].slice(0,8);
+    const q=nome+" supermercado";
+    let imgs=[];
+
+    // 1) Google Custom Search API (se configurada)
+    const gcKey=process.env.GOOGLE_SEARCH_KEY;
+    const gcCx=process.env.GOOGLE_SEARCH_CX;
+    if(gcKey&&gcCx){
+      try{
+        const r=await fetch(`https://www.googleapis.com/customsearch/v1?key=${gcKey}&cx=${gcCx}&q=${encodeURIComponent(q)}&searchType=image&num=4&imgSize=medium&safe=active`);
+        const j=await r.json();
+        imgs=(j.items||[]).map(i=>i.link).filter(Boolean).slice(0,4);
+      }catch(e1){ console.log("Google CSE erro:",e1.message); }
     }
+
+    // 2) DuckDuckGo com vqd token
+    if(imgs.length<2){
+      try{
+        const r1=await fetch(`https://duckduckgo.com/?q=${encodeURIComponent(q)}&iax=images&ia=images`,{
+          headers:{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36","Accept-Language":"pt-BR,pt;q=0.9"}
+        });
+        const html=await r1.text();
+        const vqdMatch=html.match(/vqd="([^"]+)"/)||html.match(/vqd='([^']+)'/);
+        if(vqdMatch){
+          const vqd=vqdMatch[1];
+          await new Promise(r=>setTimeout(r,300));
+          const r2=await fetch(`https://duckduckgo.com/i.js?q=${encodeURIComponent(q)}&vqd=${encodeURIComponent(vqd)}&p=1&s=0&u=bing&f=,,,,,&l=pt-br`,{
+            headers:{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36","Referer":"https://duckduckgo.com/","Accept":"application/json"}
+          });
+          const j2=await r2.json();
+          const ddgImgs=(j2.results||[]).map(r=>r.thumbnail||r.image).filter(u=>u&&u.startsWith("http")).slice(0,4);
+          imgs=[...imgs,...ddgImgs].slice(0,4);
+          console.log("DDG encontrou:",ddgImgs.length,"imagens para",nome);
+        } else {
+          console.log("DDG: vqd não encontrado no HTML");
+        }
+      }catch(e2){ console.log("DDG erro:",e2.message); }
+    }
+
+    // 3) SerpAPI free tier alternativa — scraping Google via serp
+    if(imgs.length<2){
+      try{
+        const r=await fetch(`https://serpapi.com/search.json?engine=google_images&q=${encodeURIComponent(q)}&api_key=${process.env.SERPAPI_KEY||""}&num=4&hl=pt&gl=br`);
+        if(r.ok){
+          const j=await r.json();
+          const serpImgs=(j.images_results||[]).map(i=>i.thumbnail||i.original).filter(Boolean).slice(0,4);
+          imgs=[...imgs,...serpImgs].slice(0,4);
+        }
+      }catch(e3){}
+    }
+
+    console.log("Busca '"+nome+"':",imgs.length,"imgs");
     res.json({data:imgs});
   }catch(e){ res.status(500).json({erro:e.message,data:[]}); }
 });
@@ -1483,22 +1517,32 @@ app.post("/api/imagens/salvar", async(req,res)=>{
   try{
     const {produtoId, imagemUrl}=req.body||{};
     if(!produtoId||!imagemUrl) return res.status(400).json({erro:"produtoId e imagemUrl obrigatórios"});
-    // busca produto atual para ter todos os campos obrigatórios
+    // busca produto completo
     const prodAtual=await bling(`/produtos/${produtoId}`);
     const prod=prodAtual?.data||{};
-    // PUT com imagem atualizada
-    const r=await bling(`/produtos/${produtoId}`,{method:"PUT",body:JSON.stringify({
-      nome:prod.nome||"",
+    if(!prod.nome) return res.status(404).json({erro:"Produto não encontrado no Bling"});
+    await new Promise(r=>setTimeout(r,350));
+    // monta imagens: mantém as existentes + adiciona a nova
+    const imagensAtuais=(prod.imagens||[]).filter(i=>i.link&&i.link!==imagemUrl);
+    const novasImagens=[{link:imagemUrl,tipoArmazenamento:"externo",validade:""},...imagensAtuais];
+    // PUT com todos os campos obrigatórios do produto
+    const payload={
+      nome:prod.nome,
       codigo:prod.codigo||"",
       preco:prod.preco||0,
       tipo:prod.tipo||"P",
       situacao:prod.situacao||"A",
-      imageThumbnail:imagemUrl,
-      imageUrl:imagemUrl,
-      imagens:[{link:imagemUrl,validade:"",tipoArmazenamento:"externo"}]
-    })});
+      formato:prod.formato||"S",
+      imagens:novasImagens,
+    };
+    if(prod.unidade) payload.unidade=prod.unidade;
+    if(prod.descricaoCurta) payload.descricaoCurta=prod.descricaoCurta;
+    const r=await bling(`/produtos/${produtoId}`,{method:"PUT",body:JSON.stringify(payload)});
     res.json({ok:true,data:r});
-  }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
+  }catch(e){
+    console.error("Erro salvar imagem:",e.message,JSON.stringify(e.body||"").slice(0,300));
+    res.status(e.status||500).json({erro:e.message,body:e.body});
+  }
 });
 app.get("/imagens",(req,res)=>res.sendFile(path.join(__dirname,"imagens.html")));
 
