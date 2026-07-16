@@ -141,6 +141,24 @@ function carregar(){
   ev.onerror=function(){ ev.close(); document.getElementById("progressLabel").textContent="Conexão interrompida. Recarregue a página."; };
 }
 
+// Fila de busca para não sobrecarregar
+const filaBusca=[];
+let buscandoAtual=false;
+
+function enfileirarBusca(id, nome){
+  filaBusca.push({id,nome});
+  if(!buscandoAtual) processarFila();
+}
+
+async function processarFila(){
+  if(!filaBusca.length){ buscandoAtual=false; return; }
+  buscandoAtual=true;
+  const {id,nome}=filaBusca.shift();
+  await buscarImagens(id,nome);
+  await new Promise(r=>setTimeout(r,800)); // delay entre buscas
+  processarFila();
+}
+
 function adicionarCard(prod){
   const div=document.createElement("div");
   div.className="prod-row";
@@ -152,14 +170,13 @@ function adicionarCard(prod){
       <div class="prod-cod">ID: ${prod.id} · Cód: ${esc(prod.codigo||"—")}</div>
     </div>
     <div class="prod-imgs" id="imgs_${prod.id}">
-      <div class="imgs-loading"><span class="spinner"></span>Buscando imagens…</div>
+      <div class="imgs-loading" style="color:#514c96;font-size:10px">⏳ aguardando…</div>
     </div>
     <div class="prod-actions" id="act_${prod.id}">
       <button class="btn btn-ghost btn-sm" onclick="buscarImagens('${prod.id}','${esc(prod.nome)}')">🔄 Rebuscar</button>
     </div>`;
   document.getElementById("lista").appendChild(div);
-  // busca imagens automaticamente
-  buscarImagens(prod.id, prod.nome);
+  enfileirarBusca(prod.id, prod.nome);
 }
 
 async function buscarImagens(id, nome){
