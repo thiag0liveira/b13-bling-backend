@@ -164,11 +164,31 @@ async function init(){
   if(pedidoQR) abrirPedido(pedidoQR);
 }
 
+let periodoIni=null, periodoFim=null, periodoAtivo="30dias";
+
+function calcP(tipo){
+  const n=new Date(); n.setHours(n.getHours()-3);
+  const h=n.toISOString().slice(0,10);
+  const d=(x)=>new Date(n-x*86400000).toISOString().slice(0,10);
+  if(tipo==="hoje") return {ini:h,fim:h};
+  if(tipo==="ontem") return {ini:d(1),fim:d(1)};
+  if(tipo==="semana") return {ini:d(6),fim:h};
+  if(tipo==="mes") return {ini:h.slice(0,8)+"01",fim:h};
+  return {ini:d(29),fim:h};
+}
+
+function setPeriodoConf(tipo, ini, fim){
+  if(tipo==="custom"){ periodoIni=ini; periodoFim=fim; }
+  else{ const p=calcP(tipo); periodoIni=p.ini; periodoFim=p.fim; }
+  periodoAtivo=tipo; carregar();
+}
+
 async function carregar(){
   try{
-    const r=await fetch(BACKEND+"/api/pedidos");
+    const sits=[SIT.SEPARADO||821590].filter(Boolean).join(",");
+    const url=BACKEND+`/api/pedidos?limite=100&idsSituacoes=${sits}&dataInicial=${periodoIni||calcP("30dias").ini}&dataFinal=${periodoFim||calcP("30dias").fim}`;
+    const r=await fetch(url);
     const j=await r.json();
-    // filtra apenas SEPARADO (821590)
     pedidos=(j.data||[]).filter(p=>p.situacao?.id===SIT.SEPARADO||p.situacao?.id===821590||p.situacao?.nome==="SEPARADO");
     render();
   }catch(e){
@@ -182,8 +202,18 @@ function render(){
     renderConferencia();
     return;
   }
+  const barHtml=`<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+    ${["hoje","ontem","semana","mes","30dias"].map(k=>`<button onclick="setPeriodoConf('${k}')"
+      style="padding:3px 8px;border-radius:5px;border:1px solid ${periodoAtivo===k?"#FF0082":"#2a2660"};background:${periodoAtivo===k?"#262366":"transparent"};color:${periodoAtivo===k?"#fff":"#9a95c9"};font-size:11px;cursor:pointer">
+      ${{hoje:"Hoje",ontem:"Ontem",semana:"Semana",mes:"Mês","30dias":"30 dias"}[k]}</button>`).join("")}
+    <span style="font-size:11px;color:var(--muted)">📅</span>
+    <input type="date" value="${periodoIni||""}" onchange="document.getElementById('pfim') && setPeriodoConf('custom',this.value,document.getElementById('pfim').value)" style="background:#0f0d24;border:1px solid #2a2660;border-radius:5px;color:#fff;font-size:11px;padding:2px 5px">
+    <span style="font-size:11px;color:var(--muted)">→</span>
+    <input id="pfim" type="date" value="${periodoFim||""}" onchange="setPeriodoConf('custom',document.querySelector('input[type=date]').value,this.value)" style="background:#0f0d24;border:1px solid #2a2660;border-radius:5px;color:#fff;font-size:11px;padding:2px 5px">
+  </div>`;
+
   if(!pedidos.length){
-    app.innerHTML=`<div style="text-align:center;padding:40px;color:var(--muted)">
+    app.innerHTML=barHtml+`<div style="text-align:center;padding:40px;color:var(--muted)">
       <div style="font-size:36px;margin-bottom:10px">✅</div>
       <div style="font-weight:700">Nenhum pedido aguardando conferência</div>
       <div class="muted" style="margin-top:6px">Pedidos com status SEPARADO aparecerão aqui</div>
@@ -191,7 +221,7 @@ function render(){
     </div>`;
     return;
   }
-  app.innerHTML=`
+  app.innerHTML=barHtml+`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div class="colhead">Pedidos para conferir (${pedidos.length})</div>
       <button class="btn btn-ghost btn-sm" onclick="carregar()">↻</button>
