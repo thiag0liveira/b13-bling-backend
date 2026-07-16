@@ -933,9 +933,13 @@ app.post("/api/finalizar", async (req, res) => {
 
         if(Object.keys(atualizacao).length){
           try{
-            await bling(`/contatos/${contatoId}`,{method:"PATCH",body:JSON.stringify(atualizacao)});
+            await bling(`/contatos/${contatoId}`,{method:"PUT",body:JSON.stringify({
+              ...atualizacao,
+              nome: atualizacao.nome||nome||"",
+              situacao:"A",
+            })});
             console.log("Contato atualizado:", contatoId, Object.keys(atualizacao));
-            await new Promise(r=>setTimeout(r,400)); // aguarda para evitar rate limit
+            await new Promise(r=>setTimeout(r,400));
           }catch(e){ console.error("Erro ao atualizar contato:", e.message); }
         }
       } else {
@@ -1001,23 +1005,8 @@ app.post("/api/finalizar", async (req, res) => {
     // depois mover para AGUARDANDO SEPARAÇÃO
     await new Promise(r=>setTimeout(r,350)); // delay para evitar rate limit
     const pedido = await bling(`/pedidos/vendas`, { method: "POST", body: JSON.stringify(payload) });
-    // remover parcela automática que o Bling adiciona
-    const pedidoId=pedido?.data?.id;
-    if(pedidoId){
-      try{
-        await new Promise(r=>setTimeout(r,600));
-        const ped2=await bling(`/pedidos/vendas/${pedidoId}`);
-        const parcs=ped2?.data?.parcelas||[];
-        for(const parc of parcs){
-          if(parc.id){
-            await new Promise(r=>setTimeout(r,400));
-            await bling(`/pedidos/vendas/${pedidoId}/parcelas/${parc.id}`,{method:"DELETE"});
-            console.log("Parcela removida:", parc.id);
-          }
-        }
-      }catch(e){ console.log("Parcela não removida:", e.message); }
-    }
     // mover para status AGUARDANDO SEPARAÇÃO após criação
+    const pedidoId=pedido?.data?.id;
     if(pedidoId && process.env.BLING_SITUACAO_ID){
       try{
         await new Promise(r=>setTimeout(r,400));
