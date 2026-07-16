@@ -1560,53 +1560,24 @@ app.post("/api/imagens/salvar", async(req,res)=>{
     const temExt=urlBase.endsWith(".jpg")||urlBase.endsWith(".jpeg")||urlBase.endsWith(".png")||urlBase.endsWith(".webp")||urlBase.endsWith(".gif");
     if(!temExt) return res.status(400).json({erro:"URL deve terminar com .jpg, .png ou .webp para o Bling aceitar. Copie a URL direta da imagem."});
     console.log("Salvando imagem — produtoId:",produtoId,"url:",imagemUrl);
-    // Estratégia: baixar a imagem e fazer upload como arquivo para o Bling
     let sucesso=false;
     try{
-      // 1) baixa a imagem
-      const imgResp=await fetch(imagemUrl,{headers:{"User-Agent":"Mozilla/5.0"}});
-      if(!imgResp.ok) throw new Error("Não foi possível baixar a imagem: "+imgResp.status);
-      const imgBuffer=await imgResp.arrayBuffer();
-      const imgBytes=Buffer.from(imgBuffer);
-      const contentType=imgResp.headers.get("content-type")||"image/jpeg";
-      const ext=contentType.includes("png")?"png":contentType.includes("webp")?"webp":"jpg";
-      const filename=`produto_${produtoId}.${ext}`;
-      console.log("Imagem baixada:",imgBytes.length,"bytes",contentType);
-
-      // 2) envia como multipart para o Bling
       const token=await getAccessToken();
-      const boundary="----B13Boundary"+Date.now();
-      const parts=[];
-      parts.push(`--${boundary}
-Content-Disposition: form-data; name="file"; filename="${filename}"
-Content-Type: ${contentType}
-
-`);
-      const bodyParts=[Buffer.from(parts[0],"utf8"),imgBytes,Buffer.from(`
---${boundary}--
-`,"utf8")];
-      const bodyBuffer=Buffer.concat(bodyParts);
-
-      const uploadResp=await fetch(`https://api.bling.com.br/Api/v3/produtos/${produtoId}/imagens`,{
-        method:"POST",
-        headers:{Authorization:`Bearer ${token}`,"Content-Type":`multipart/form-data; boundary=${boundary}`},
-        body:bodyBuffer,
+      const r=await fetch(`https://api.bling.com.br/Api/v3/produtos/${produtoId}`,{
+        method:"PATCH",
+        headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json",Accept:"application/json"},
+        body:JSON.stringify({midia:{video:{url:""},imagens:{externas:[{link:imagemUrl}]}}})
       });
-      const uploadTxt=await uploadResp.text();
-      console.log("Upload resposta:",uploadResp.status,uploadTxt.slice(0,200));
-      sucesso=uploadResp.ok;
-    }catch(eUpload){
-      console.log("Upload erro:",eUpload.message);
-      // fallback: salva URL externa via PATCH
-      try{
-        await bling(`/produtos/${produtoId}`,{method:"PATCH",body:JSON.stringify({
-          midia:{video:{url:""},imagens:{externas:[{link:imagemUrl}]}}
-        })});
-        sucesso=true; // aceita como sucesso mesmo sem verificar
-      }catch(ePatch){ console.error("PATCH erro:",ePatch.message); }
+      const txt=await r.text(); let j; try{j=JSON.parse(txt);}catch{j={raw:txt};}
+      console.log("PATCH resposta:",r.status,JSON.stringify(j).slice(0,200));
+      if(!r.ok) throw Object.assign(new Error("Bling "+r.status),{body:j});
+      sucesso=true;
+    }catch(e){
+      console.error("PATCH erro:",e.message,JSON.stringify(e.body||"").slice(0,200));
+      throw e;
     }
-    console.log("Imagem salva no Bling:", sucesso);
-
+    console.log("Imagem salva:", sucesso);
+    
     res.json({ok:sucesso, aviso:sucesso?null:"Bling pode não ter salvo a imagem"});
   }catch(e){
     console.error("Erro PUT imagem:",e.message,JSON.stringify(e.body||"").slice(0,300));
