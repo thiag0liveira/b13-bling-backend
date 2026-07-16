@@ -471,7 +471,7 @@ app.post("/api/fluxo/:id/enviar-separacao",async(req,res)=>{
     }
     // muda status no Bling
     await bling(`/pedidos/vendas/${id}/situacoes/${SIT.EM_SEP}`,{method:"PATCH"});
-    addLog(id, pagamento?.valor?"enviado_separacao_pago":"enviado_separacao_sem_pagar", funcionarioId, funcionarioNome, pagamento?{valor:pagamento.valor,formaNome:pagamento.formaNome}:{});
+    addLog(id, pagamento?.valor?"enviado_separacao_pago":"separar_para_entregar", funcionarioId, funcionarioNome, pagamento?{valor:pagamento.valor,formaNome:pagamento.formaNome}:{});
     res.json({ok:true});
   }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
 });
@@ -735,7 +735,7 @@ app.get("/api/analytics", async (req,res)=>{
     let tempoFluxoTotal=0, tempoFluxoCount=0;
     Object.entries(log).forEach(([pedId,eventos])=>{
       if(!Array.isArray(eventos)) return;
-      const criado=eventos.find(e=>e.evento==="enviado_separacao_pago"||e.evento==="enviado_separacao_sem_pagar");
+      const criado=eventos.find(e=>e.evento==="enviado_separacao_pago"||e.evento==="separar_para_entregar");
       const concluido=eventos.find(e=>e.evento==="conferido_entrega"||e.evento==="conferido_retirada");
       if(criado&&concluido&&dentroP(criado.em)){ tempoFluxoTotal+=(concluido.em-criado.em)/60000; tempoFluxoCount++; }
     });
