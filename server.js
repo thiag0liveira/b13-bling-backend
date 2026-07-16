@@ -1361,6 +1361,131 @@ app.get("/api/preco-codigo", async (req, res) => {
 app.get("/listas", (req, res) => res.sendFile(path.join(__dirname, "listas.html")));
 app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "dashboard.html")));
 
+// ---- Gerenciador de imagens de produtos ----
+// Progresso em tempo real via SSE
+app.get("/api/imagens/sem-foto/progresso", async(req,res)=>{
+  res.setHeader("Content-Type","text/event-stream");
+  res.setHeader("Cache-Control","no-cache");
+  res.setHeader("Connection","keep-alive");
+  res.flushHeaders();
+
+  const send=(data)=>{ res.write(`data: ${JSON.stringify(data)}
+
+`); };
+
+  try{
+    const tab=lerTabela();
+    if(!tab||!tab.model){ send({tipo:"fim",data:[]}); res.end(); return; }
+    const est=await getEstoqueMap();
+    const semFoto=[];
+    const vistos=new Set();
+    const todos=[];
+    tab.model.forEach(cat=>{
+      (cat.itens||[]).forEach(it=>{
+        (it.bling||[]).forEach(b=>{
+          const e=est[String(b.codigo)];
+          const prodId=e?.id||b.id||null;
+          if(prodId&&!vistos.has(String(prodId))){
+            vistos.add(String(prodId));
+            todos.push({prodId,b,it,cat,e});
+          }
+        });
+      });
+    });
+
+    send({tipo:"total",total:todos.length});
+
+    for(let i=0;i<todos.length;i++){
+      const {prodId,b,it,cat,e}=todos[i];
+      send({tipo:"progresso",atual:i+1,total:todos.length,nome:b.nome||it.nome||""});
+      try{
+        await new Promise(r=>setTimeout(r,350));
+        const pj=await bling(`/produtos/${prodId}`);
+        const prod=pj?.data||{};
+        const temImagem=!!(prod.imageUrl||prod.imageThumbnail||(prod.imagens&&prod.imagens.length>0));
+        if(!temImagem){
+          const item={id:prodId,codigo:b.codigo||prod.codigo||"",nome:prod.nome||b.nome||it.nome||"",categoria:cat.t,preco:prod.preco||it.preco||0};
+          semFoto.push(item);
+          send({tipo:"sem_foto",item});
+        }
+      }catch(e2){}
+    }
+    send({tipo:"fim",total:todos.length,semFoto:semFoto.length});
+    res.end();
+  }catch(e){
+    send({tipo:"erro",msg:e.message});
+    res.end();
+  }
+});
+
+// Lista produtos sem imagem — verifica direto no Bling
+app.get("/api/imagens/sem-foto", async(req,res)=>{
+  try{
+    const tab=lerTabela();
+    if(!tab||!tab.model) return res.json({data:[]});
+    const est=await getEstoqueMap();
+    const semFoto=[];
+    const vistos=new Set();
+    for(const cat of tab.model){
+      for(const it of (cat.itens||[])){
+        for(const b of (it.bling||[])){
+          const e=est[String(b.codigo)];
+          const prodId=e?.id||b.id||null;
+          if(!prodId||vistos.has(String(prodId))) continue;
+          vistos.add(String(prodId));
+          // verifica imagem no Bling diretamente
+          try{
+            await new Promise(r=>setTimeout(r,350)); // rate limit
+            const pj=await bling(`/produtos/${prodId}`);
+            const prod=pj?.data||{};
+            const temImagem=!!(prod.imageUrl||prod.imageThumbnail||(prod.imagens&&prod.imagens.length>0));
+            if(!temImagem){
+              semFoto.push({
+                id:prodId,
+                codigo:b.codigo||prod.codigo||"",
+                nome:prod.nome||b.nome||it.nome||"",
+                categoria:cat.t,
+                preco:prod.preco||it.preco||0,
+              });
+            }
+          }catch(e2){ /* ignora erros individuais */ }
+        }
+      }
+    }
+    res.json({data:semFoto});
+  }catch(e){ res.status(500).json({erro:e.message}); }
+});
+
+// Salvar imagem de um produto no Bling
+app.post("/api/imagens/salvar", async(req,res)=>{
+  try{
+    const {produtoId, imagemUrl}=req.body||{};
+    if(!produtoId||!imagemUrl) return res.status(400).json({erro:"produtoId e imagemUrl obrigatórios"});
+    // busca produto atual para ter todos os campos obrigatórios
+    const prodAtual=await bling(`/produtos/${produtoId}`);
+    const prod=prodAtual?.data||{};
+    // PUT com imagem atualizada
+    const r=await bling(`/produtos/${produtoId}`,{method:"PUT",body:JSON.stringify({
+      nome:prod.nome||"",
+      codigo:prod.codigo||"",
+      preco:prod.preco||0,
+      tipo:prod.tipo||"P",
+      situacao:prod.situacao||"A",
+      imageThumbnail:imagemUrl,
+      imageUrl:imagemUrl,
+      imagens:[{link:imagemUrl,validade:"",tipoArmazenamento:"externo"}]
+    })});
+    res.json({ok:true,data:r});
+  }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }
+});
+app.get("/imagens",(req,res)=>res.sendFile(path.join(__dirname,"imagens.html")));
+
+// Buscar produto no Bling por ID (para verificar campos disponíveis)
+app.get("/api/produto/:id", async(req,res)=>{
+  try{ res.json(await bling(`/produtos/${req.params.id}`)); }
+  catch(e){ res.status(e.status||500).json({erro:e.message}); }
+});
+
 // Importar NF-e por chave de acesso via Bling → SEFAZ
 app.post("/api/nfe/importar", async (req, res) => {
   try {
