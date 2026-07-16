@@ -1486,7 +1486,8 @@ app.get("/api/imagens/buscar", async(req,res)=>{
             headers:{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36","Referer":"https://duckduckgo.com/","Accept":"application/json"}
           });
           const j2=await r2.json();
-          const ddgImgs=(j2.results||[]).map(r=>r.thumbnail||r.image).filter(u=>u&&u.startsWith("http")).slice(0,4);
+          // usa URL original da imagem (não thumbnail do Bing)
+          const ddgImgs=(j2.results||[]).map(r=>r.image||r.thumbnail).filter(u=>u&&u.startsWith("http")&&!u.includes("tse1.mm.bing")&&!u.includes("tse2.mm.bing")&&!u.includes("tse3.mm.bing")&&!u.includes("tse4.mm.bing")).slice(0,4);
           imgs=[...imgs,...ddgImgs].slice(0,4);
           console.log("DDG encontrou:",ddgImgs.length,"imagens para",nome);
         } else {
