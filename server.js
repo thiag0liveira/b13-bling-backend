@@ -1452,6 +1452,32 @@ app.get("/api/imagens/sem-foto", async(req,res)=>{
   }catch(e){ res.status(500).json({erro:e.message}); }
 });
 
+// Buscar imagens via DuckDuckGo (sem API key)
+app.get("/api/imagens/buscar", async(req,res)=>{
+  try{
+    const nome=(req.query.nome||"").trim();
+    if(!nome) return res.status(400).json({erro:"nome obrigatório"});
+    const q=encodeURIComponent(nome+" supermercado");
+    // DuckDuckGo image search via HTML scraping
+    const url=`https://duckduckgo.com/?q=${q}&iax=images&ia=images&t=h_`;
+    const r=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}});
+    const html=await r.text();
+    // extrai URLs de imagens do JSON embutido no HTML do DDG
+    const matches=[...html.matchAll(/"thumbnail":"([^"]+)"/g)].map(m=>m[1]).filter(u=>u.startsWith("http")).slice(0,8);
+    // tenta também via vqd token
+    const vqd=(html.match(/vqd=['"]([^'"]+)['"]/)||[])[1];
+    let imgs=matches;
+    if(vqd&&imgs.length<4){
+      const r2=await fetch(`https://duckduckgo.com/i.js?q=${q}&vqd=${vqd}&f=,,,,,&p=1`,{
+        headers:{"User-Agent":"Mozilla/5.0","Referer":"https://duckduckgo.com/"}
+      });
+      const j2=await r2.json();
+      imgs=[...(j2.results||[]).map(r=>r.thumbnail||r.image).filter(Boolean).slice(0,8),...imgs].slice(0,8);
+    }
+    res.json({data:imgs});
+  }catch(e){ res.status(500).json({erro:e.message,data:[]}); }
+});
+
 // Salvar imagem de um produto no Bling
 app.post("/api/imagens/salvar", async(req,res)=>{
   try{
