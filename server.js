@@ -1571,6 +1571,15 @@ app.post("/api/imagens/salvar", async(req,res)=>{
       const txt=await r.text(); let j; try{j=JSON.parse(txt);}catch{j={raw:txt};}
       console.log("PATCH resposta:",r.status,JSON.stringify(j).slice(0,200));
       if(!r.ok) throw Object.assign(new Error("Bling "+r.status),{body:j});
+      // verifica se salvou
+      await new Promise(r=>setTimeout(r,600));
+      const token2=await getAccessToken();
+      const r2=await fetch(`https://api.bling.com.br/Api/v3/produtos/${produtoId}`,{
+        headers:{Authorization:`Bearer ${token2}`,Accept:"application/json"}
+      });
+      const j2=await r2.json();
+      const externas=j2?.data?.midia?.imagens?.externas||[];
+      console.log("Externas após PATCH:",JSON.stringify(externas));
       sucesso=true;
     }catch(e){
       console.error("PATCH erro:",e.message,JSON.stringify(e.body||"").slice(0,200));
