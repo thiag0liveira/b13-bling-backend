@@ -1378,29 +1378,37 @@ app.get("/api/imagens/sem-foto/progresso", async(req,res)=>{
 
   try{
     const semFoto=[];
-    // busca TODOS os produtos do Bling (não só os da tabela)
-    const todos=[];
-    let pgLoop=1;
+    // conta total primeiro
+    let total=0, pg=1;
     while(true){
-      const d=await bling(`/produtos?pagina=${pgLoop}&limite=100`);
+      const d=await bling(`/produtos?pagina=${pg}&limite=100`);
       const arr=d.data||[];
-      todos.push(...arr);
+      total+=arr.length;
       if(arr.length<100) break;
-      pgLoop++;
-      await new Promise(r=>setTimeout(r,350));
-      if(pgLoop>100) break;
+      pg++; await new Promise(r=>setTimeout(r,350));
+      if(pg>100) break;
     }
-    send({tipo:"total",total:todos.length});
+    send({tipo:"total",total});
 
-    for(let i=0;i<todos.length;i++){
-      const prod=todos[i];
-      send({tipo:"progresso",atual:i+1,total:todos.length,nome:prod.nome||""});
-      const temImagem=!!(prod.imagemURL&&prod.imagemURL.trim());
-      if(!temImagem){
-        const item={id:prod.id,codigo:prod.codigo||"",nome:prod.nome||"",categoria:"",preco:prod.preco||0};
-        semFoto.push(item);
-        send({tipo:"sem_foto",item});
+    // processa página por página sem guardar tudo na memória
+    let processados=0;
+    pg=1;
+    while(true){
+      const d=await bling(`/produtos?pagina=${pg}&limite=100`);
+      const arr=d.data||[];
+      for(const prod of arr){
+        processados++;
+        send({tipo:"progresso",atual:processados,total,nome:prod.nome||""});
+        const temImagem=!!(prod.imagemURL&&prod.imagemURL.trim());
+        if(!temImagem){
+          const item={id:prod.id,codigo:prod.codigo||"",nome:prod.nome||"",categoria:"",preco:prod.preco||0};
+          semFoto.push(item);
+          send({tipo:"sem_foto",item});
+        }
       }
+      if(arr.length<100) break;
+      pg++; await new Promise(r=>setTimeout(r,350));
+      if(pg>100) break;
     }
         send({tipo:"fim",total:todos.length,semFoto:semFoto.length});
     res.end();
