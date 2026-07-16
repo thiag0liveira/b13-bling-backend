@@ -865,14 +865,14 @@ function abrirQR(id, numero){
   document.getElementById("mbox").innerHTML=`
     <div style="text-align:center;padding:20px;max-width:340px">
       <h3 style="margin-bottom:4px">📱 QR Code — Pedido #${numero||id}</h3>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:14px">Nota de separação com QR code</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:14px">Leia para abrir a nota de separação</div>
       <div style="background:#fff;padding:12px;border-radius:10px;display:inline-block;margin-bottom:12px">
         <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(urlNota)}" style="width:180px;height:180px;display:block">
       </div>
-      <div style="font-size:10px;color:var(--muted);margin-bottom:16px;word-break:break-all">${url}</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:16px;word-break:break-all">${urlNota}</div>
       <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-        <a href="${urlNota}" target="_blank" class="btn btn-mag" style="text-decoration:none">🖨️ Abrir nota / Imprimir</a>
-        <a href="${urlStatus}" target="_blank" class="btn btn-ghost" style="text-decoration:none;margin-top:4px">📊 Ver status</a>
+        <a href="${urlNota}" target="_blank" class="btn btn-mag" style="text-decoration:none">🖨️ Nota / Imprimir</a>
+        <a href="${urlStatus}" target="_blank" class="btn btn-ghost" style="text-decoration:none">📊 Ver status</a>
         <button class="btn btn-ghost" onclick="fecharModal()">Fechar</button>
       </div>
     </div>`;
