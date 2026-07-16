@@ -330,19 +330,9 @@ function cardCliente(){
 
 function mudarCategoria(i){
   S.busca=''; S.catAtiva=i; S.expandido=null;
-  const catsEl=document.querySelector('.cats');
-  const catsScroll=catsEl?catsEl.scrollLeft:0;
+  const scrollY=window.scrollY; // salva posição
   render();
-  requestAnimationFrame(()=>{
-    const cats2=document.querySelector('.cats');
-    if(cats2) cats2.scrollLeft=catsScroll;
-    // scroll para logo abaixo da barra de categorias
-    const el=document.getElementById('produtos-lista');
-    if(el){
-      const top=el.getBoundingClientRect().top+window.scrollY-160;
-      window.scrollTo({top:Math.max(0,top),behavior:'instant'});
-    }
-  });
+  window.scrollTo(0,scrollY); // restaura posição exata
 }
 
 function telaCatalogo(app){
