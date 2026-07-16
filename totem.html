@@ -328,6 +328,20 @@ function cardCliente(){
   </div>`;
 }
 
+function mudarCategoria(i){
+  S.busca=''; S.catAtiva=i; S.expandido=null;
+  // salva scroll atual das categorias para não mover
+  const catsEl=document.querySelector('.cats');
+  const catsScroll=catsEl?catsEl.scrollLeft:0;
+  render();
+  // restaura scroll das cats e vai para o topo dos produtos
+  requestAnimationFrame(()=>{
+    const cats2=document.querySelector('.cats');
+    if(cats2) cats2.scrollLeft=catsScroll;
+    window.scrollTo({top:0,behavior:'instant'});
+  });
+}
+
 function telaCatalogo(app){
   const busca=S.busca.trim().toLowerCase();
   let lista, titulo;
@@ -339,8 +353,8 @@ function telaCatalogo(app){
     lista=(c?c.produtos:[]).filter(produtoDisp); // esconde esgotados na navegação
     titulo=c?c.nome:"";
   }
-  const cats=CAT.map((c,i)=>`<div class="cat ${!busca&&i===S.catAtiva?"on":""}" onclick="S.busca='';S.catAtiva=${i};S.expandido=null;render();requestAnimationFrame(()=>{const el=document.getElementById('produtos-lista');if(el)el.scrollIntoView({behavior:'instant',block:'start'});})">${esc(c.nome)}</div>`).join("");
-  const side=CAT.map((c,i)=>`<div class="scat ${!busca&&i===S.catAtiva?"on":""}" onclick="S.busca='';S.catAtiva=${i};S.expandido=null;render();requestAnimationFrame(()=>{const el=document.getElementById('produtos-lista');if(el)el.scrollIntoView({behavior:'instant',block:'start'});})">${esc(c.nome)}</div>`).join("");
+  const cats=CAT.map((c,i)=>`<div class="cat ${!busca&&i===S.catAtiva?"on":""}" onclick="mudarCategoria(${i})">${esc(c.nome)}</div>`).join("");
+  const side=CAT.map((c,i)=>`<div class="scat ${!busca&&i===S.catAtiva?"on":""}" onclick="mudarCategoria(${i})">${esc(c.nome)}</div>`).join("");
   const cards=lista.map(p=>cardProduto(p,busca)).join("") || `<div class="muted">Nenhum produto encontrado.</div>`;
 
   const boasVindas = ""; // removido — cardCliente() já mostra essa info
