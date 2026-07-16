@@ -933,14 +933,21 @@ app.post("/api/finalizar", async (req, res) => {
 
         if(Object.keys(atualizacao).length){
           try{
-            await bling(`/contatos/${contatoId}`,{method:"PUT",body:JSON.stringify({
-              ...atualizacao,
-              nome: atualizacao.nome||nome||"",
-              situacao:"A",
-            })});
+            // PUT exige objeto completo — mescla com dados atuais
+            const putBody={
+              nome: atualizacao.nome||contatoAtual.nome||nome||"",
+              situacao: contatoAtual.situacao||"A",
+              tipo: contatoAtual.tipo||"F",
+              numeroDocumento: contatoAtual.numeroDocumento||doc||"",
+              celular: atualizacao.celular||contatoAtual.celular||"",
+              telefone: atualizacao.telefone||contatoAtual.telefone||"",
+              email: atualizacao.email||contatoAtual.email||"",
+              endereco: atualizacao.endereco||contatoAtual.endereco||undefined,
+            };
+            await bling(`/contatos/${contatoId}`,{method:"PUT",body:JSON.stringify(putBody)});
             console.log("Contato atualizado:", contatoId, Object.keys(atualizacao));
             await new Promise(r=>setTimeout(r,400));
-          }catch(e){ console.error("Erro ao atualizar contato:", e.message); }
+          }catch(e){ console.error("Erro ao atualizar contato (ignorado):", e.message); }
         }
       } else {
         const tipo = doc.length === 14 ? "J" : "F";
