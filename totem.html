@@ -8,6 +8,12 @@
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;font-family:Arial,Helvetica,sans-serif}
   :root{--indigo:#262366;--indigo2:#2b2870;--mag:#FF0082;--mag2:#FF0F86;--bg:#0f0d24}
   body{margin:0;background:var(--bg);color:#fff;overscroll-behavior:none}
+  /* scrollbar estilizada */
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:#514c96;border-radius:3px}
+  ::-webkit-scrollbar-thumb:hover{background:var(--mag)}
+  * { scrollbar-width:thin; scrollbar-color:#514c96 var(--bg); }
   #app{max-width:900px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
   .top{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,var(--indigo2),var(--indigo));display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:3px solid var(--mag)}
   @media(max-width:480px){.top{padding:8px 10px}}
@@ -330,9 +336,7 @@ function cardCliente(){
 
 function mudarCategoria(i){
   S.busca=''; S.catAtiva=i; S.expandido=null;
-  const scrollY=window.scrollY; // salva posição
   render();
-  window.scrollTo(0,scrollY); // restaura posição exata
 }
 
 function telaCatalogo(app){
