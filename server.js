@@ -91,10 +91,15 @@ async function getAccessToken(){
 }
 async function bling(path,options={}){
   const token=await getAccessToken();
-  const r=await fetch(API+path,{...options,headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json",Accept:"application/json",...(options.headers||{})}});
-  const txt=await r.text(); let j; try{ j=txt?JSON.parse(txt):{}; }catch{ j={raw:txt}; }
-  if(!r.ok) throw Object.assign(new Error("Erro Bling "+r.status),{status:r.status,body:j});
-  return j;
+  const ctrl=new AbortController();
+  const timeout=setTimeout(()=>ctrl.abort(),30000); // 30s timeout
+  try{
+    const r=await fetch(API+path,{...options,signal:ctrl.signal,headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json",Accept:"application/json",...(options.headers||{})}});
+    clearTimeout(timeout);
+    const txt=await r.text(); let j; try{ j=txt?JSON.parse(txt):{}; }catch{ j={raw:txt}; }
+    if(!r.ok) throw Object.assign(new Error("Erro Bling "+r.status),{status:r.status,body:j});
+    return j;
+  }catch(e){ clearTimeout(timeout); throw e; }
 }
 const soDigitos=(s)=>(s||"").replace(/\D/g,"");
 
@@ -1369,44 +1374,35 @@ app.get("/api/imagens/sem-foto/progresso", async(req,res)=>{
   res.setHeader("Connection","keep-alive");
   res.flushHeaders();
 
-  const send=(data)=>{ res.write(`data: ${JSON.stringify(data)}
-
-`); };
+    const send=(data)=>{ res.write(`data: ${JSON.stringify(data)}\n\n`); };
 
   try{
-    const tab=lerTabela();
-    if(!tab||!tab.model){ send({tipo:"fim",data:[]}); res.end(); return; }
-    const est=await getEstoqueMap();
     const semFoto=[];
-    const vistos=new Set();
+    // busca TODOS os produtos do Bling (não só os da tabela)
     const todos=[];
-    tab.model.forEach(cat=>{
-      (cat.itens||[]).forEach(it=>{
-        (it.bling||[]).forEach(b=>{
-          const e=est[String(b.codigo)];
-          const prodId=e?.id||b.id||null;
-          if(prodId&&!vistos.has(String(prodId))){
-            vistos.add(String(prodId));
-            todos.push({prodId,b,it,cat,e});
-          }
-        });
-      });
-    });
-
+    let pgLoop=1;
+    while(true){
+      const d=await bling(`/produtos?pagina=${pgLoop}&limite=100`);
+      const arr=d.data||[];
+      todos.push(...arr);
+      if(arr.length<100) break;
+      pgLoop++;
+      await new Promise(r=>setTimeout(r,350));
+      if(pgLoop>100) break;
+    }
     send({tipo:"total",total:todos.length});
 
-    // usa imagemURL já disponível no estoque map — sem chamadas extras ao Bling (muito mais rápido)
     for(let i=0;i<todos.length;i++){
-      const {prodId,b,it,cat,e}=todos[i];
-      send({tipo:"progresso",atual:i+1,total:todos.length,nome:e?.nome||b.nome||it.nome||""});
-      const temImagem=!!(e?.imagem && e.imagem.trim());
+      const prod=todos[i];
+      send({tipo:"progresso",atual:i+1,total:todos.length,nome:prod.nome||""});
+      const temImagem=!!(prod.imagemURL&&prod.imagemURL.trim());
       if(!temImagem){
-        const item={id:prodId,codigo:b.codigo||"",nome:e?.nome||b.nome||it.nome||"",categoria:cat.t,preco:it.preco||0};
+        const item={id:prod.id,codigo:prod.codigo||"",nome:prod.nome||"",categoria:"",preco:prod.preco||0};
         semFoto.push(item);
         send({tipo:"sem_foto",item});
       }
     }
-    send({tipo:"fim",total:todos.length,semFoto:semFoto.length});
+        send({tipo:"fim",total:todos.length,semFoto:semFoto.length});
     res.end();
   }catch(e){
     send({tipo:"erro",msg:e.message});
@@ -1559,7 +1555,18 @@ app.post("/api/imagens/salvar", async(req,res)=>{
     if(prod.estoque?.minimo!==undefined) payload.estoque={minimo:prod.estoque.minimo,maximo:prod.estoque.maximo,crossdocking:prod.estoque.crossdocking,localizacao:prod.estoque.localizacao};
 
     console.log("Salvando imagem produto",produtoId,"payload.imagens:",JSON.stringify(novasImagens));
-    const r=await bling(`/produtos/${produtoId}`,{method:"PUT",body:JSON.stringify(payload)});
+    // payload mínimo — só campos obrigatórios + imagens
+    const payloadMin={
+      nome:prod.nome,
+      codigo:prod.codigo||"",
+      preco:prod.preco||0,
+      tipo:prod.tipo||"P",
+      situacao:prod.situacao||"A",
+      formato:prod.formato||"S",
+      imagens:novasImagens,
+    };
+    const r=await bling(`/produtos/${produtoId}`,{method:"PUT",body:JSON.stringify(payloadMin)});
+    console.log("Bling resposta salvar:", JSON.stringify(r).slice(0,200));
     res.json({ok:true,data:r});
   }catch(e){
     console.error("Erro salvar imagem:",e.message,JSON.stringify(e.body||"").slice(0,500));
@@ -1567,6 +1574,21 @@ app.post("/api/imagens/salvar", async(req,res)=>{
   }
 });
 app.get("/imagens",(req,res)=>res.sendFile(path.join(__dirname,"imagens.html")));
+
+// Contar total de produtos no Bling
+app.get("/api/produtos/total", async(req,res)=>{
+  try{
+    let total=0, pg=1;
+    while(true){
+      const d=await bling(`/produtos?pagina=${pg}&limite=100`);
+      const arr=d.data||[]; total+=arr.length;
+      if(arr.length<100) break;
+      pg++; await new Promise(r=>setTimeout(r,350));
+      if(pg>100) break; // segurança
+    }
+    res.json({total, paginas:pg});
+  }catch(e){ res.status(500).json({erro:e.message}); }
+});
 
 // Buscar produto no Bling por ID (para verificar campos disponíveis)
 app.get("/api/produto/:id", async(req,res)=>{
