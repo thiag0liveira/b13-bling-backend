@@ -218,14 +218,32 @@ async function abrirPedido(id){
     const faltas=pend?.faltas||[];
 
     // monta itens com info de pendência anterior
+    // busca mapa de estoque para pegar imagens
+    let estMap={};
+    try{
+      const rEst=await fetch(BACKEND+"/api/catalogo");
+      const jEst=await rEst.json();
+      (jEst.categorias||[]).forEach(cat=>{
+        (cat.produtos||[]).forEach(prod=>{
+          (prod.sabores||[]).forEach(sab=>{
+            if(sab.codigo) estMap[String(sab.codigo)]={imagem:sab.imagem||"",nome:sab.nome||""};
+          });
+        });
+      });
+    }catch(e){}
+
     itensConf=(sel.itens||[]).map(i=>{
       const falta=faltas.find(f=>f.descricao===i.descricao||(f.produtoId&&f.produtoId===i.produto?.id));
+      // tenta pegar imagem do produto
+      const codigo=i.produto?.codigo||i.codigo||"";
+      const estItem=estMap[String(codigo)]||{};
+      const imagem=i.produto?.imageThumbnail||estItem.imagem||"";
       return {
         produtoId:i.produto?.id,
         descricao:i.descricao||i.produto?.nome||"",
         quantidade:i.quantidade,
         valor:i.valor,
-        imagem:i.produto?.imageThumbnail||"",
+        imagem,
         confirmado:false,
         _teveFalta:!!falta,
         _faltaQtd:falta?.falta||0,
@@ -252,7 +270,9 @@ function renderConferencia(){
   const linhas=itensConf.map((c,ix)=>`
     <div class="it ${c.confirmado?'ok':''} ${c._teveFalta&&!c.confirmado?'pend':''}"
       onclick="${c._teveFalta&&!c.confirmado?'':` confirmarItem(${ix})`}" >
-      ${c.imagem?`<img class="it-img" src="${esc(c.imagem)}" onerror="this.remove()">`:''}
+      ${c.imagem
+        ?`<img class="it-img" src="${esc(c.imagem)}" onerror="this.outerHTML='<div class=\'it-img\' style=\'background:#1a1040;display:flex;align-items:center;justify-content:center;font-size:18px\'>📦</div>'">`
+        :`<div class="it-img" style="background:#1a1040;display:flex;align-items:center;justify-content:center;font-size:18px">📦</div>`}
       <div style="flex:1">
         <div class="it-nome">${esc(c.descricao)}
           ${c._teveFalta?`<span class="it-pend-tag">⚠️ teve falta de ${c._faltaQtd}</span>`:''}

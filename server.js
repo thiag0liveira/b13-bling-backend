@@ -163,6 +163,7 @@ function b13RenderNav(ativo){
     {href:"/gestao",label:"📋 Gestão",check:()=>b13Pode("editar_pedido")},
     {href:"/listas",label:"📄 Listas",check:()=>b13Pode("ver_listas")},
     {href:"/funcionarios",label:"👥 Funcionários",check:()=>b13Pode("ver_funcionarios")},
+    {href:"/imagens",label:"📷 Imagens",check:()=>b13Pode("admin")},
   ].filter(l=>l.check());
 
   return \`<div id="b13nav" style="position:fixed;top:0;left:0;bottom:0;width:200px;background:linear-gradient(180deg,#2b2870,#262366);border-right:2px solid #FF0082;display:flex;flex-direction:column;z-index:100;transform:translateX(-100%);transition:.25s" id="b13nav">

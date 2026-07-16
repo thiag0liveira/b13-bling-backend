@@ -57,8 +57,26 @@ header h1{font-size:16px;font-weight:900;color:#fff;flex:1}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:#514c96;border-radius:3px}
 </style>
+<script src="/nav.js"></script>
+<style>
+  body.b13nav-open{overflow:hidden}
+  @media(min-width:700px){
+    #b13nav{transform:translateX(0%) !important}
+    #b13navOverlay{display:none !important}
+    body > *:not(#b13nav):not([onclick="b13ToggleNav()"]):not(#b13navOverlay){margin-left:200px}
+  }
+</style>
 </head>
-<body>
+<body><script>
+  (function(){
+    if(!b13RequireLogin()) return;
+    document.addEventListener("DOMContentLoaded",function(){
+      const nav=document.createElement("div");
+      nav.innerHTML=b13RenderNav("/imagens");
+      document.body.insertBefore(nav,document.body.firstChild);
+    });
+  })();
+</script>
 <header>
   <img src="/logo" onerror="this.style.display='none'">
   <h1>📷 Gerenciador de Imagens</h1>
