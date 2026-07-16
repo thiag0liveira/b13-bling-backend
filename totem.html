@@ -339,8 +339,8 @@ function telaCatalogo(app){
     lista=(c?c.produtos:[]).filter(produtoDisp); // esconde esgotados na navegação
     titulo=c?c.nome:"";
   }
-  const cats=CAT.map((c,i)=>`<div class="cat ${!busca&&i===S.catAtiva?"on":""}" onclick="S.busca='';S.catAtiva=${i};S.expandido=null;render()">${esc(c.nome)}</div>`).join("");
-  const side=CAT.map((c,i)=>`<div class="scat ${!busca&&i===S.catAtiva?"on":""}" onclick="S.busca='';S.catAtiva=${i};S.expandido=null;render()">${esc(c.nome)}</div>`).join("");
+  const cats=CAT.map((c,i)=>`<div class="cat ${!busca&&i===S.catAtiva?"on":""}" onclick="S.busca='';S.catAtiva=${i};S.expandido=null;render();requestAnimationFrame(()=>{const el=document.getElementById('produtos-lista');if(el)el.scrollIntoView({behavior:'instant',block:'start'});})">${esc(c.nome)}</div>`).join("");
+  const side=CAT.map((c,i)=>`<div class="scat ${!busca&&i===S.catAtiva?"on":""}" onclick="S.busca='';S.catAtiva=${i};S.expandido=null;render();requestAnimationFrame(()=>{const el=document.getElementById('produtos-lista');if(el)el.scrollIntoView({behavior:'instant',block:'start'});})">${esc(c.nome)}</div>`).join("");
   const cards=lista.map(p=>cardProduto(p,busca)).join("") || `<div class="muted">Nenhum produto encontrado.</div>`;
 
   const boasVindas = ""; // removido — cardCliente() já mostra essa info
@@ -349,7 +349,7 @@ function telaCatalogo(app){
      <div class="cats">${cats}</div>
      <div class="wrap"><div class="layout">
        <div class="side">${side}</div>
-       <div style="flex:1;min-width:0"><div style="font-weight:800;margin:2px 0 10px">${esc(titulo)}</div><div class="grid">${cards}</div></div>
+       <div style="flex:1;min-width:0"><div id="produtos-lista" style="font-weight:800;margin:2px 0 10px">${esc(titulo)}</div><div class="grid">${cards}</div></div>
      </div></div>`
     + barra();
 }
