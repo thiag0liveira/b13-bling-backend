@@ -1696,6 +1696,71 @@ app.get("/api/produto/:id/imagens-debug", async(req,res)=>{
   }catch(e){ res.status(e.status||500).json({erro:e.message}); }
 });
 
+// Página pública de status do pedido (acessada via QR code)
+app.get("/pedido/:id/status", async(req,res)=>{
+  try{
+    const id=req.params.id;
+    const [rPed,rPag,rLog]=await Promise.all([
+      bling(`/pedidos/vendas/${id}`),
+      Promise.resolve(lerPag()[id]||null),
+      Promise.resolve(lerJSON(LOG_FILE,{})[id]||[]),
+    ]);
+    const ped=rPed?.data||{};
+    const pag=rPag;
+    const log=(rLog||[]).slice(-5).reverse();
+    const sit=ped.situacao?.nome||"Desconhecido";
+    const sitCor={
+      "AGUARDANDO SEPARAÇÃO (SISTEMA)":"#fbff00",
+      "Em Separação":"#00aaff",
+      "SEPARADO C/ PENDÊNCIAS":"#d400ff",
+      "SEPARADO":"#8e42a3",
+      "Em Rota":"#6d2390",
+      "Atendido":"#3FB57A",
+    }[sit]||"#9a95c9";
+    const pago=pag?.statusPagamento==="pago";
+    const html=`<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pedido ${ped.numero||id}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0920;color:#e8e4ff;font-family:system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:#12103a;border:1px solid #2a2660;border-radius:16px;padding:24px;max-width:400px;width:100%;text-align:center}
+.logo{font-size:28px;font-weight:900;color:#FF0082;margin-bottom:4px}
+.sub{font-size:11px;color:#9a95c9;margin-bottom:20px}
+.numero{font-size:32px;font-weight:900;margin-bottom:4px}
+.cliente{color:#9a95c9;font-size:14px;margin-bottom:20px}
+.status{padding:10px 20px;border-radius:30px;font-size:16px;font-weight:900;display:inline-block;margin-bottom:16px}
+.total{font-size:22px;font-weight:900;color:#ffd23f;margin-bottom:8px}
+.pag{font-size:13px;margin-bottom:20px}
+.log{text-align:left;border-top:1px solid #2a2660;padding-top:16px}
+.log-title{font-size:11px;color:#9a95c9;margin-bottom:8px;font-weight:700}
+.log-item{font-size:12px;padding:5px 0;border-bottom:1px solid #1a1840;color:#cfc9f5}
+.log-item span{color:#9a95c9;font-size:10px;float:right}
+</style></head><body>
+<div class="card">
+  <div class="logo">B13</div>
+  <div class="sub">BEBIDAS · STATUS DO PEDIDO</div>
+  <div class="numero">Pedido #${ped.numero||id}</div>
+  <div class="cliente">👤 ${ped.contato?.nome||"—"}</div>
+  <div class="status" style="background:${sitCor}22;color:${sitCor};border:2px solid ${sitCor}">${sit}</div>
+  <div class="total">R$ ${(ped.total||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
+  <div class="pag">${pago?`✅ Pago: R$ ${(pag.valorPago||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}`:"⏳ Aguardando pagamento"}</div>
+  ${log.length?`<div class="log">
+    <div class="log-title">HISTÓRICO</div>
+    ${log.map(e=>{
+      const d=new Date(e.em||0);
+      const hr=d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+      const dt=d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+      return `<div class="log-item">${(e.evento||"").replace(/_/g," ")} — ${e.funcionarioNome||""}<span>${dt} ${hr}</span></div>`;
+    }).join("")}
+  </div>`:""}
+  <div style="margin-top:16px;font-size:10px;color:#514c96">Atualizado em ${new Date().toLocaleString("pt-BR")}</div>
+</div></body></html>`;
+    res.setHeader("Content-Type","text/html;charset=utf-8");
+    res.send(html);
+  }catch(e){ res.status(500).send("Erro ao buscar pedido"); }
+});
+
 // Importar NF-e por chave de acesso via Bling → SEFAZ
 app.post("/api/nfe/importar", async (req, res) => {
   try {

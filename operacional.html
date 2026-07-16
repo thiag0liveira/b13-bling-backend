@@ -298,12 +298,13 @@ function montarBotoes(p,aba,pago,parcial){
   // ABA: aguardando
   if(sit===SIT.AGUARDANDO){
     const jaPago=pago||parcial;
-    // se já pagou, só mostra "Separar" (não "Separar sem pagar")
-    const btnSep=(!jaPago&&PODE("enviar_separacao"))?`<button class="btn btn-blue" onclick="enviarSep(${id},false)">▶ Separar sem pagar</button>`:"";
+    const btnSep=(!jaPago&&PODE("enviar_separacao"))?`<button class="btn btn-blue" onclick="enviarSep(${id},false)">▶ Separar para entregar</button>`:"";
     const btnPag=(!jaPago&&PODE("receber_pagamento"))?`<button class="btn btn-grn" onclick="abrirPagamento(${id},${p.total})">💰 Receber e Separar</button>`:"";
     const btnSepPago=(jaPago&&PODE("enviar_separacao"))?`<button class="btn btn-grn" onclick="enviarSep(${id},true)">▶ Separar (já pago)</button>`:"";
+    const btnClienteSep=PODE("receber_pagamento")?`<button class="btn btn-ghost" onclick="receberEClienteJaSeparou(${id},${p.total})">✅ Receber — cliente já separou</button>`:"";
     const btnWhats=`<button class="btn btn-ghost" style="background:#075e54" onclick="whatsAguardando(${id})">🟢 WhatsApp</button>`;
-    return `<div style="display:flex;gap:6px;flex-wrap:wrap;width:100%">${btnPag}${btnSep}${btnSepPago}${btnWhats}</div>`;
+    const btnQR=`<button class="btn btn-ghost" onclick="abrirQR(${id},'${p.numero||id}')" title="QR Code do pedido">📱</button>`;
+    return `<div style="display:flex;gap:6px;flex-wrap:wrap;width:100%">${btnPag}${btnSep}${btnSepPago}${btnClienteSep}${btnWhats}${btnQR}</div>`;
   }
   // ABA: em separação
   if(sit===SIT.EM_SEP){
@@ -838,6 +839,43 @@ async function executarRetirarSeguir(id,resolucao,valorAbatido){
     if(resolucao==="estorno") alert(`✅ Pendências retiradas!
 ↩ Estorno de ${brl(valorAbatido)} via ${window._estornoFormaNome||""}. Efetue o estorno manualmente.`);
   }catch(e){ document.getElementById("retMsg").innerHTML=`<div class="err">Erro ao salvar</div>`; }
+}
+
+async function receberEClienteJaSeparou(id, total){
+  // abre modal de pagamento e ao confirmar vai direto para SEPARADO
+  abrirPagamento(id, total, async()=>{
+    showMsg(id,`<div class="muted">Movendo para Separado…</div>`);
+    try{
+      const r=await fetch(B+"/api/pedidos/"+id+"/situacao",{method:"PATCH",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({idSituacao:SIT.SEPARADO,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome})});
+      const j=await r.json();
+      if(r.ok&&!j.erro){
+        addLog(id,"recebido_cliente_separou",FUNC?.id,FUNC?.nome,{total});
+        await carregar();
+      } else showMsg(id,`<div class="err">${esc(j.erro||"Erro ao mover para Separado")}</div>`);
+    }catch(e){ showMsg(id,`<div class="err">Erro de conexão</div>`); }
+  }, true); // substituir pagamento
+}
+
+// QR Code do pedido
+function abrirQR(id, numero){
+  const url=B+"/pedido/"+id+"/status";
+  document.getElementById("modal").style.display="flex";
+  document.getElementById("mbox").innerHTML=`
+    <div style="text-align:center;padding:20px">
+      <h3 style="margin-bottom:12px">📱 QR Code — Pedido ${numero||id}</h3>
+      <div id="qrContainer" style="background:#fff;padding:16px;border-radius:12px;display:inline-block;margin-bottom:12px"></div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">${url}</div>
+      <div style="display:flex;gap:8px;justify-content:center">
+        <button class="btn btn-mag" onclick="window.print()">🖨️ Imprimir</button>
+        <button class="btn btn-ghost" onclick="fecharModal()">Fechar</button>
+      </div>
+    </div>`;
+  // gera QR code com API pública
+  const img=document.createElement("img");
+  img.src=`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
+  img.style.cssText="width:200px;height:200px";
+  document.getElementById("qrContainer").appendChild(img);
 }
 
 async function voltarAguardando(id){
