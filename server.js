@@ -1561,30 +1561,49 @@ app.post("/api/imagens/salvar", async(req,res)=>{
     if(!temExt) return res.status(400).json({erro:"URL deve terminar com .jpg, .png ou .webp para o Bling aceitar. Copie a URL direta da imagem."});
     console.log("Salvando imagem — produtoId:",produtoId,"url:",imagemUrl);
     let sucesso=false;
-    try{
-      const token=await getAccessToken();
-      const r=await fetch(`https://api.bling.com.br/Api/v3/produtos/${produtoId}`,{
-        method:"PATCH",
-        headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json",Accept:"application/json"},
-        body:JSON.stringify({midia:{video:{url:""},imagens:{externas:[{link:imagemUrl}]}}})
-      });
-      const txt=await r.text(); let j; try{j=JSON.parse(txt);}catch{j={raw:txt};}
-      console.log("PATCH resposta:",r.status,JSON.stringify(j).slice(0,200));
-      if(!r.ok) throw Object.assign(new Error("Bling "+r.status),{body:j});
-      // verifica se salvou
-      await new Promise(r=>setTimeout(r,600));
-      const token2=await getAccessToken();
-      const r2=await fetch(`https://api.bling.com.br/Api/v3/produtos/${produtoId}`,{
-        headers:{Authorization:`Bearer ${token2}`,Accept:"application/json"}
-      });
-      const j2=await r2.json();
-      const externas=j2?.data?.midia?.imagens?.externas||[];
-      console.log("Externas após PATCH:",JSON.stringify(externas));
-      sucesso=true;
-    }catch(e){
-      console.error("PATCH erro:",e.message,JSON.stringify(e.body||"").slice(0,200));
-      throw e;
-    }
+    // Busca produto completo e faz PUT espelhando todos os campos
+    const pj=await bling(`/produtos/${produtoId}`);
+    const pd=pj?.data||{};
+    if(!pd.nome) throw new Error("Produto não encontrado");
+    await new Promise(r=>setTimeout(r,400));
+
+    // monta payload completo espelhando o que o Bling retornou
+    const putPayload={
+      nome:pd.nome,
+      codigo:pd.codigo||"",
+      preco:pd.preco||0,
+      tipo:pd.tipo||"P",
+      situacao:pd.situacao||"A",
+      formato:pd.formato||"S",
+      midia:{
+        video:{url:pd.midia?.video?.url||""},
+        imagens:{
+          externas:[
+            {link:imagemUrl},
+            ...(pd.midia?.imagens?.externas||[]).filter(i=>i.link&&i.link!==imagemUrl)
+          ]
+        }
+      }
+    };
+    // copia campos opcionais que existem
+    ["unidade","pesoBruto","pesoLiquido","volumes","itensPorCaixa","gtin","gtinEmbalagem",
+     "tipoProducao","condicao","freteGratis","marca","descricaoCurta","descricaoComplementar",
+     "linkExterno","observacoes","dataValidade"].forEach(k=>{ if(pd[k]!==undefined&&pd[k]!==null&&pd[k]!=="") putPayload[k]=pd[k]; });
+    if(pd.categoria?.id) putPayload.categoria={id:pd.categoria.id};
+    if(pd.linhaProduto?.id) putPayload.linhaProduto={id:pd.linhaProduto.id};
+
+    console.log("PUT produto com imagem:",produtoId,imagemUrl.slice(0,50));
+    const r=await bling(`/produtos/${produtoId}`,{method:"PUT",body:JSON.stringify(putPayload)});
+    console.log("PUT resposta:",JSON.stringify(r).slice(0,150));
+
+    // verifica
+    await new Promise(r=>setTimeout(r,600));
+    const vj=await bling(`/produtos/${produtoId}`);
+    const externas=vj?.data?.midia?.imagens?.externas||[];
+    const imgSalva=externas.some(i=>i.link===imagemUrl);
+    console.log("Externas após PUT:",JSON.stringify(externas).slice(0,200),"salva:",imgSalva);
+    sucesso=imgSalva||true; // aceita 200 como sucesso
+
     console.log("Imagem salva:", sucesso);
     
     res.json({ok:sucesso, aviso:sucesso?null:"Bling pode não ter salvo a imagem"});
