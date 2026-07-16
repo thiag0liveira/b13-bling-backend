@@ -1541,12 +1541,14 @@ app.post("/api/imagens/salvar", async(req,res)=>{
     if(!prod.nome) return res.status(404).json({erro:"Produto não encontrado"});
     await new Promise(r=>setTimeout(r,400));
     // campo correto na API v3 do Bling é midia.imagens.externas
+    const externasAtuais=(prod.midia?.imagens?.externas||[]).filter(i=>i.link&&i.link!==imagemUrl);
     const payload={
       nome:prod.nome, codigo:prod.codigo||"", preco:prod.preco||0,
       tipo:prod.tipo||"P", situacao:prod.situacao||"A", formato:prod.formato||"S",
       midia:{
+        video:{url:prod.midia?.video?.url||""},
         imagens:{
-          externas:[{link:imagemUrl},...(prod.midia?.imagens?.externas||[]).filter(i=>i.link&&i.link!==imagemUrl)]
+          externas:[{link:imagemUrl},...externasAtuais]
         }
       },
     };
