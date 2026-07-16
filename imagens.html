@@ -224,27 +224,25 @@ async function salvar(prodId){
   const url=selecionados[prodId];
   const prod=produtos.find(p=>p.id==prodId);
   if(!url||!prod) return;
+  // Copia URL e abre Bling — API v3 não suporta salvar imagens externas
+  await navigator.clipboard.writeText(url).catch(()=>{});
+  window.open(`https://www.bling.com.br/produtos.php#edit/${prod.id}/imagens`,"_blank");
   const act=document.getElementById("act_"+prodId);
-  act.innerHTML=`<div style="font-size:11px;color:var(--muted)">Salvando…</div>`;
-  try{
-    const r=await fetch(B+"/api/imagens/salvar",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({produtoId:prod.id,imagemUrl:url})});
-    const j=await r.json();
-    if(r.ok&&!j.erro){
-      salvos[prod.id]=url;
-      document.getElementById("pSalvos").textContent=Object.keys(salvos).length;
-      document.getElementById("pSemFoto").textContent=produtos.filter(p=>!salvos[p.id]).length;
-      const row=document.getElementById("row_"+prod.id);
-      if(row){ row.style.opacity=".4"; row.style.pointerEvents="none"; }
-      act.innerHTML=`<span class="saved-tag">✓ Salvo</span>`;
-    } else {
-      act.innerHTML=`<div class="err" style="font-size:11px">${esc(j.erro||"Erro")}</div>
-        <button class="btn btn-grn btn-sm" onclick="salvar('${prodId}')">Tentar de novo</button>`;
-    }
-  }catch(e){
-    act.innerHTML=`<div class="err" style="font-size:11px">Erro de conexão</div>
-      <button class="btn btn-grn btn-sm" onclick="salvar('${prodId}')">Tentar de novo</button>`;
-  }
+  act.innerHTML=`<div style="background:#1a1040;border:1px solid #514c96;border-radius:6px;padding:6px 8px;font-size:10px;color:#cfc9f5;max-width:180px">
+    ✅ URL copiada!<br>Cole no Bling que abriu.<br>
+    <button class="btn btn-ghost btn-sm" style="margin-top:4px;font-size:10px" onclick="marcarSalvo('${prodId}')">✓ Já colei no Bling</button>
+  </div>`;
+}
+
+function marcarSalvo(prodId){
+  const url=selecionados[prodId];
+  salvos[prodId]=url||true;
+  document.getElementById("pSalvos").textContent=Object.keys(salvos).length;
+  document.getElementById("pSemFoto").textContent=produtos.filter(p=>!salvos[p.id]).length;
+  const row=document.getElementById("row_"+prodId);
+  if(row){ row.style.opacity=".4"; row.style.pointerEvents="none"; }
+  const act=document.getElementById("act_"+prodId);
+  act.innerHTML=`<span class="saved-tag">✓ Salvo</span>`;
 }
 
 function filtrar(){
