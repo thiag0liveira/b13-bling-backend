@@ -161,8 +161,8 @@ function b13RenderNav(ativo){
     {href:"/conferencia",label:"🔍 Conferência",check:()=>b13Pode("conferir")},
     {href:"/dashboard",label:"📊 Dashboard",check:()=>b13Pode("ver_dashboard")},
     {href:"/gestao",label:"📋 Gestão",check:()=>b13Pode("editar_pedido")},
+    {href:"/tabela",label:"🗂️ Tabela Atacado",check:()=>b13Pode("ver_listas")},
     {href:"/listas",label:"📄 Listas de Preço",check:()=>b13Pode("ver_listas")},
-    {href:"/painel",label:"📊 Tabela Atacado",check:()=>b13Pode("ver_listas")},
     {href:"/funcionarios",label:"👥 Funcionários",check:()=>b13Pode("ver_funcionarios")},
     {href:"/imagens",label:"📷 Imagens",check:()=>b13Pode("admin")},
   ].filter(l=>l.check());
@@ -1379,6 +1379,7 @@ app.get("/api/preco-codigo", async (req, res) => {
 app.get("/conferencia",(req,res)=>res.sendFile(path.join(__dirname,"conferencia.html")));
 // Config pública (situações)
 app.get("/api/config",(req,res)=>res.json({SIT}));
+app.get("/tabela",(req,res)=>res.sendFile(path.join(__dirname,"tabela.html")));
 app.get("/listas", (req, res) => res.sendFile(path.join(__dirname, "listas.html")));
 app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "dashboard.html")));
 
