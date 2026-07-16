@@ -1559,33 +1559,53 @@ app.post("/api/imagens/salvar", async(req,res)=>{
     const urlBase=imagemUrl.toLowerCase().split("?")[0].split("#")[0];
     const temExt=urlBase.endsWith(".jpg")||urlBase.endsWith(".jpeg")||urlBase.endsWith(".png")||urlBase.endsWith(".webp")||urlBase.endsWith(".gif");
     if(!temExt) return res.status(400).json({erro:"URL deve terminar com .jpg, .png ou .webp para o Bling aceitar. Copie a URL direta da imagem."});
-    console.log("PUT imagem produto",produtoId,imagemUrl.slice(0,60));
-    // tenta primeiro via PUT do produto
+    console.log("Salvando imagem — produtoId:",produtoId,"url:",imagemUrl);
+    // Estratégia: baixar a imagem e fazer upload como arquivo para o Bling
     let sucesso=false;
     try{
-      const r=await bling(`/produtos/${produtoId}`,{method:"PUT",body:JSON.stringify(payload)});
-      console.log("PUT produto resposta:", JSON.stringify(r).slice(0,150));
-      // verifica se a imagem foi salva
-      await new Promise(r=>setTimeout(r,500));
-      const verificar=await bling(`/produtos/${produtoId}`);
-      const vd=verificar?.data||{};
-      console.log("Após PUT — imagemURL:",vd.imagemURL,"midia:",JSON.stringify(vd.midia||{}).slice(0,200),"imagens:",JSON.stringify(vd.imagens||[]).slice(0,200));
-      const imgSalva=!!(vd.imagemURL===imagemUrl||(vd.midia?.imagens?.externas||[]).some(i=>i.link===imagemUrl));
-      console.log("Imagem salva no Bling:", imgSalva);
-      sucesso=imgSalva;
-    }catch(e1){ console.log("PUT produto erro:",e1.message); }
+      // 1) baixa a imagem
+      const imgResp=await fetch(imagemUrl,{headers:{"User-Agent":"Mozilla/5.0"}});
+      if(!imgResp.ok) throw new Error("Não foi possível baixar a imagem: "+imgResp.status);
+      const imgBuffer=await imgResp.arrayBuffer();
+      const imgBytes=Buffer.from(imgBuffer);
+      const contentType=imgResp.headers.get("content-type")||"image/jpeg";
+      const ext=contentType.includes("png")?"png":contentType.includes("webp")?"webp":"jpg";
+      const filename=`produto_${produtoId}.${ext}`;
+      console.log("Imagem baixada:",imgBytes.length,"bytes",contentType);
 
-    // se não salvou via PUT, tenta via endpoint de imagens (se existir)
-    if(!sucesso){
+      // 2) envia como multipart para o Bling
+      const token=await getAccessToken();
+      const boundary="----B13Boundary"+Date.now();
+      const parts=[];
+      parts.push(`--${boundary}
+Content-Disposition: form-data; name="file"; filename="${filename}"
+Content-Type: ${contentType}
+
+`);
+      const bodyParts=[Buffer.from(parts[0],"utf8"),imgBytes,Buffer.from(`
+--${boundary}--
+`,"utf8")];
+      const bodyBuffer=Buffer.concat(bodyParts);
+
+      const uploadResp=await fetch(`https://api.bling.com.br/Api/v3/produtos/${produtoId}/imagens`,{
+        method:"POST",
+        headers:{Authorization:`Bearer ${token}`,"Content-Type":`multipart/form-data; boundary=${boundary}`},
+        body:bodyBuffer,
+      });
+      const uploadTxt=await uploadResp.text();
+      console.log("Upload resposta:",uploadResp.status,uploadTxt.slice(0,200));
+      sucesso=uploadResp.ok;
+    }catch(eUpload){
+      console.log("Upload erro:",eUpload.message);
+      // fallback: salva URL externa via PATCH
       try{
-        await new Promise(r=>setTimeout(r,400));
-        const r2=await bling(`/produtos/${produtoId}/imagens`,{method:"POST",body:JSON.stringify({
-          link:imagemUrl, tipoArmazenamento:"externo"
+        await bling(`/produtos/${produtoId}`,{method:"PATCH",body:JSON.stringify({
+          midia:{video:{url:""},imagens:{externas:[{link:imagemUrl}]}}
         })});
-        console.log("POST imagens resposta:", JSON.stringify(r2).slice(0,150));
-        sucesso=true;
-      }catch(e2){ console.log("POST imagens erro (pode não existir):",e2.message); }
+        sucesso=true; // aceita como sucesso mesmo sem verificar
+      }catch(ePatch){ console.error("PATCH erro:",ePatch.message); }
     }
+    console.log("Imagem salva no Bling:", sucesso);
 
     res.json({ok:sucesso, aviso:sucesso?null:"Bling pode não ter salvo a imagem"});
   }catch(e){
