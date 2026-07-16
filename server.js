@@ -208,6 +208,31 @@ app.get("/api/produtos",async(req,res)=>{ try{ res.json(await bling(`/produtos?p
 app.get("/api/categorias",async(req,res)=>{ try{ res.json(await bling(`/categorias/produtos?limite=100`)); }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }});
 app.get("/api/produto/:id",async(req,res)=>{ try{ res.json(await bling(`/produtos/${req.params.id}`)); }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }});
 app.get("/api/raw",async(req,res)=>{ try{ const p=req.query.path; if(!p||!p.startsWith("/")) return res.status(400).json({erro:"?path=/endpoint"}); res.json(await bling(p)); }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }});
+// Debug: busca pedidos dos últimos 3 dias por situação
+app.get("/api/debug/pedidos-hoje", async(req,res)=>{
+  try{
+    const agora=new Date();
+    const offsetBR=3*60*60*1000;
+    const hoje=new Date(agora-offsetBR).toISOString().slice(0,10);
+    const ontem=new Date(agora-offsetBR-86400000).toISOString().slice(0,10);
+    // busca sem filtro de situação
+    const [rHoje,rOntem]=await Promise.all([
+      bling(`/pedidos/vendas?pagina=1&limite=100&dataInicial=${hoje}&dataFinal=${hoje}`),
+      bling(`/pedidos/vendas?pagina=1&limite=100&dataInicial=${ontem}&dataFinal=${ontem}`),
+    ]);
+    const contar=(arr)=>{ const s={}; (arr||[]).forEach(p=>{ const sid=p.situacao?.id; s[sid]=(s[sid]||0)+1; }); return s; };
+    // busca com filtro de situações
+    const params=new URLSearchParams({pagina:1,limite:100,dataInicial:ontem,dataFinal:hoje});
+    [SIT.AGUARDANDO,SIT.EM_SEP,SIT.SEP_PEND,SIT.SEPARADO].filter(Boolean).forEach(id=>params.append("idsSituacoes[]",id));
+    const rFiltrado=await bling(`/pedidos/vendas?${params.toString()}`);
+    res.json({
+      hoje,ontem,
+      pedidosHoje:{total:rHoje.data?.length||0,porSituacao:contar(rHoje.data)},
+      pedidosOntem:{total:rOntem.data?.length||0,porSituacao:contar(rOntem.data)},
+      comFiltroSituacao:{total:rFiltrado.data?.length||0,exemplos:(rFiltrado.data||[]).slice(0,3).map(p=>({numero:p.numero,sit:p.situacao?.id,nome:p.situacao?.nome}))},
+    });
+  }catch(e){ res.status(500).json({erro:e.message}); }
+});
 app.get("/api/situacoes",async(req,res)=>{ try{ const m=req.query.modulo; res.json(await bling(m?`/situacoes/modulos/${m}`:`/situacoes/modulos`)); }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }});
 
 // ---- helpers ----
