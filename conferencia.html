@@ -80,8 +80,26 @@ body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min
 @keyframes spin{to{transform:rotate(360deg)}}
 ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:var(--bg)} ::-webkit-scrollbar-thumb{background:#514c96;border-radius:2px}
 </style>
+<script src="/nav.js"></script>
+<style>
+  body.b13nav-open{ overflow:hidden }
+  @media(min-width:700px){
+    #b13nav{transform:translateX(0%) !important}
+    #b13navOverlay{display:none !important}
+    body > *:not(#b13nav):not([onclick="b13ToggleNav()"]):not(#b13navOverlay){ margin-left:200px }
+  }
+</style>
 </head>
-<body>
+<body><script>
+  (function(){
+    if(!b13RequireLogin()) return;
+    document.addEventListener("DOMContentLoaded",function(){
+      const nav=document.createElement("div");
+      nav.innerHTML=b13RenderNav("/conferencia");
+      document.body.insertBefore(nav,document.body.firstChild);
+    });
+  })();
+</script>
 <div class="header">
   <img src="/logo" onerror="this.style.display='none'">
   <h1>🔍 Conferência</h1>
@@ -116,13 +134,12 @@ body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;min
 
 <script>
 const BACKEND=window.location.origin;
+
 let FUNC=null, SIT={}, pedidos=[], sel=null, itensConf=[], tipoSel=null, fotoBase64=null;
 
-// Auth
-const sess=sessionStorage.getItem("b13sess");
-if(!sess){ location.href="/login"; throw 0; }
-try{ FUNC=JSON.parse(sess); }catch(e){ location.href="/login"; throw 0; }
-if(!FUNC?.id){ location.href="/login"; throw 0; }
+// Auth — usa sessão do nav
+FUNC=b13GetSession();
+if(!FUNC) throw 0; // b13RequireLogin já redirecionou
 document.getElementById("funcNome").textContent=FUNC.nome||"";
 
 async function init(){
