@@ -1978,6 +1978,50 @@ app.get("/pedido/:id/acompanhar",(req,res)=>res.redirect(`/pedido/${req.params.i
 
 
 
+// Salvar observação no pedido (Bling)
+app.patch("/api/pedidos/:id/observacao", async(req,res)=>{
+  try{
+    const id=req.params.id;
+    const {texto,funcionarioId,funcionarioNome}=req.body||{};
+    if(!texto) return res.status(400).json({erro:"texto obrigatório"});
+    // busca pedido atual para pegar obs existente
+    const pj=await bling(`/pedidos/vendas/${id}`);
+    const ped=pj?.data||{};
+    await new Promise(r=>setTimeout(r,400));
+    // monta nova observação acumulando
+    const obsAtual=ped.observacoes||"";
+    const novaObs=obsAtual?(obsAtual+" | "+texto):texto;
+    // PUT mínimo com nova obs
+    await bling(`/pedidos/vendas/${id}`,{method:"PUT",body:JSON.stringify({
+      nome:ped.contato?.nome||"",
+      contato:{id:ped.contato?.id},
+      data:ped.data,
+      itens:(ped.itens||[]).map(i=>({produto:{id:i.produto?.id},quantidade:i.quantidade,valor:i.valor})),
+      observacoes:novaObs,
+    })});
+    addLog(id,"observacao_salva",funcionarioId,funcionarioNome,{texto:texto.slice(0,100)});
+    res.json({ok:true});
+  }catch(e){ res.status(e.status||500).json({erro:e.message}); }
+});
+
+// Registrar estorno de pagamento
+app.post("/api/pagamentos/:id/estorno", async(req,res)=>{
+  try{
+    const id=String(req.params.id);
+    const {valor,formaId,formaNome,contaNome,funcionarioId,funcionarioNome}=req.body||{};
+    const pags=lerPag();
+    if(!pags[id]) return res.status(404).json({erro:"Pagamento não encontrado"});
+    const p=pags[id];
+    p.valorPago=+Math.max(0,+(p.valorPago||0)-+valor).toFixed(2);
+    if(!p.historico) p.historico=[];
+    p.historico.push({tipo:"estorno",valor:-+valor,formaNome,contaNome,funcionarioId,funcionarioNome,em:Date.now()});
+    p.statusPagamento=p.valorPago>=p.valorPedido?"pago":p.valorPago>0?"parcial":"pendente";
+    salvarPag(pags);
+    addLog(id,"estorno_registrado",funcionarioId,funcionarioNome,{valor,formaNome,contaNome});
+    res.json({ok:true,data:p});
+  }catch(e){ res.status(500).json({erro:e.message}); }
+});
+
 // Importar NF-e por chave de acesso via Bling → SEFAZ
 app.post("/api/nfe/importar", async (req, res) => {
   try {

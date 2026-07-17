@@ -765,6 +765,26 @@ async function retirarPendenciasESeguir(id){
   }catch(e){ document.getElementById("mbox").innerHTML=`<div class="err">Erro ao carregar</div>`; }
 }
 
+function calcDestinoAtual(){
+  const items=window.itensEdit||[];
+  const removidos=items.filter(i=>i._removido||i.quantidade===0);
+  const qtdAlterada=items.filter(i=>!i._removido&&i.quantidade>0&&i._teveFalta&&i.quantidade!==i.temQtd);
+  return (removidos.length>0||qtdAlterada.length>0) ? "sep" : "separado";
+}
+
+function atualizarBtnDestino(){
+  const btn=document.getElementById("btnConfirmarPend");
+  if(!btn) return;
+  const dest=calcDestinoAtual();
+  if(dest==="sep"){
+    btn.style.background="#1a3a6b"; btn.style.borderColor="#2f6b9e"; btn.style.color="#a8c8f0";
+    btn.innerHTML="🔄 Confirmar e voltar para Em Separação";
+  } else {
+    btn.style.background="#1a6b3a"; btn.style.borderColor="#2f9e6b"; btn.style.color="#a8f0c8";
+    btn.innerHTML="✅ Confirmar e marcar como SEPARADO";
+  }
+}
+
 function renderRetirarPend(id,faltas){
   faltas=faltas||window._pendFaltas||[];
   const items=window.itensEdit;
@@ -812,75 +832,120 @@ function renderRetirarPend(id,faltas){
     </div>
     <div id="retMsg"></div>
     <div style="display:flex;gap:8px;margin-top:10px">
-      <button class="btn btn-grn" style="flex:1" onclick="confirmarRetirarSeguir(${id})">✅ Confirmar e marcar como SEPARADO</button>
+      <button id="btnConfirmarPend" class="btn btn-grn" style="flex:1;border:1px solid" onclick="confirmarRetirarSeguir(${id})">✅ Confirmar e marcar como SEPARADO</button>
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
     </div>`;
+  atualizarBtnDestino();
 }
 async function confirmarRetirarSeguir(id){
-  document.getElementById("retMsg").innerHTML=`<div class="muted">Verificando…</div>`;
-  const itensFiltrados=window.itensEdit.filter(i=>i.quantidade>0);
-  const valorAbatido=+window.itensEdit.filter(i=>i._ajustado&&i.quantidade<(i.quantidadeOriginal||i.quantidade))
-    .reduce((s,i)=>s+((i.quantidadeOriginal||i.quantidade)-i.quantidade)*(i.valor||0),0).toFixed(2);
+  document.getElementById("retMsg").innerHTML=`<div class="muted">Verificando pagamento…</div>`;
   try{
-    const rPed2=await fetch(B+"/api/pedidos/"+id).then(r=>r.json());
+    const [rPed2,rPag]=await Promise.all([
+      fetch(B+"/api/pedidos/"+id).then(r=>r.json()),
+      fetch(B+"/api/pagamentos/"+id).then(r=>r.json()),
+    ]);
     window.pedidoEditOrig=window.pedidoEditOrig||(rPed2.data||rPed2);
-    const rPag=await fetch(B+"/api/pagamentos/"+id).then(r=>r.json());
     const pag=rPag.data;
-    const valorPedidoAtual=+(window.itensEdit.filter(i=>i.quantidade>0).reduce((s,i)=>s+(i.quantidade*(i.valor||0)),0)).toFixed(2);
+    const itensFiltrados=window.itensEdit.filter(i=>i.quantidade>0);
+    
+    // Valor real do pedido após ajustes
+    const valorNovoPedido=+itensFiltrados.reduce((s,i)=>s+(i.quantidade*(i.valor||0)),0).toFixed(2);
     const valorPago=+(pag?.valorPago||0);
-    const abatimentoReal=+(valorPago-valorPedidoAtual).toFixed(2);
-    const valorAbatidoFinal=abatimentoReal>0.01?abatimentoReal:valorAbatido;
-    if(pag?.statusPagamento==="pago"&&valorAbatidoFinal>0.01){
-      const valorAbatido=valorAbatidoFinal; // sobrescreve pra usar no bloco abaixo
-      const valorPago=+(pag.valorPago||0); const valorNovo=+(valorPago-valorAbatido).toFixed(2);
+    const statusPag=pag?.statusPagamento||"pendente";
+    
+    // Itens alterados para descrição na observação
+    const itensAlterados=window.itensEdit.filter(i=>i._teveFalta&&(i._removido||i.quantidade!==i.quantidadeOriginal));
+    const descItens=itensAlterados.map(i=>i._removido?`${i.descricao} (removido)`:`${i.descricao} (${i.quantidadeOriginal}→${i.quantidade})`).join(", ");
+    
+    const diff=+(valorPago-valorNovoPedido).toFixed(2); // positivo=estorno, negativo=falta pagamento
+
+    // Caso 1: pago e precisa estorno
+    if(statusPag==="pago"&&diff>0.01){
       const optsForma=formasPag.map(f=>`<option value="${f.id}">${esc(f.nome||f.id)}</option>`).join("");
       window._estornoFormaId=formasPag[0]?.id||""; window._estornoFormaNome=formasPag[0]?.nome||"";
+      const histPag=(pag?.historico||[]).map(h=>`${h.formaNome||""}(${brl(h.valor||0)})`).join(", ");
       document.getElementById("retMsg").innerHTML=`
         <div style="background:#1c1846;border:1px solid #3a357f;border-radius:10px;padding:14px;margin-top:8px">
-          <div style="font-weight:900;margin-bottom:6px;font-size:14px">💬 Pedido já foi pago</div>
-          <div style="font-size:13px;margin-bottom:10px;color:#9a95c9">
-            Valor pago: <b style="color:#fff">${brl(valorPago)}</b> &nbsp;→&nbsp;
-            Valor a pagar: <b style="color:#ffd23f">${brl(valorNovo)}</b> &nbsp;
-            Diferença: <b style="color:#ff8090">-${brl(valorAbatido)}</b>
+          <div style="font-weight:900;font-size:14px;margin-bottom:6px">💬 Pedido já pago — precisa de estorno</div>
+          <div style="font-size:12px;color:#9a95c9;margin-bottom:4px">Pagamento original: <b style="color:#fff">${histPag||brl(valorPago)}</b></div>
+          <div style="font-size:13px;margin-bottom:6px">
+            Novo total: <b style="color:#ffd23f">${brl(valorNovoPedido)}</b> &nbsp;
+            <b style="color:#ff8090">Estorno: ${brl(diff)}</b>
           </div>
-          <div style="font-weight:800;margin-bottom:8px">Como resolver a diferença de ${brl(valorAbatido)}?</div>
-          <div style="display:flex;gap:8px;margin-bottom:10px">
-            <button class="btn btn-grn" style="flex:1" onclick="selecionarResolucao(this,'credito')">💳 Crédito cliente</button>
-            <button class="btn btn-yellow" style="flex:1" onclick="selecionarResolucao(this,'estorno')">↩ Estorno</button>
-            <button class="btn btn-ghost" style="flex:1" onclick="selecionarResolucao(this,'registrar')">📋 Só registrar</button>
+          <div style="font-size:12px;color:#9a95c9;margin-bottom:10px">Itens alterados: ${esc(descItens)}</div>
+          <div style="font-weight:700;margin-bottom:6px">Como realizar o estorno de ${brl(diff)}?</div>
+          <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+            <button class="btn btn-ghost" style="flex:1;min-width:120px" onclick="selecionarResolucao(this,'credito')">💳 Crédito ao cliente</button>
+            <button class="btn btn-ghost" style="flex:1;min-width:120px" onclick="selecionarResolucao(this,'estorno')">↩ Devolução</button>
+            <button class="btn btn-ghost" style="flex:1;min-width:120px" onclick="selecionarResolucao(this,'registrar')">📋 Só registrar</button>
           </div>
-          <div id="estornoFormaBox" style="display:none;margin-bottom:10px">
-            <div style="font-size:12px;color:#9a95c9;margin-bottom:4px">Forma do estorno:</div>
-            <select onchange="window._estornoFormaId=this.value;window._estornoFormaNome=this.options[this.selectedIndex].text"
-              style="width:100%;padding:8px;background:#0f0d24;border:1px solid #514c96;border-radius:8px;color:#fff;font-size:13px">
+          <div id="estornoDetalheBox" style="display:none;margin-bottom:10px">
+            <div style="font-size:12px;color:#9a95c9;margin-bottom:4px">Forma da devolução:</div>
+            <select id="estornoFormaSelect" onchange="window._estornoFormaId=this.value;window._estornoFormaNome=this.options[this.selectedIndex].text"
+              style="width:100%;padding:8px;background:#0f0d24;border:1px solid #514c96;border-radius:8px;color:#fff;font-size:13px;margin-bottom:6px">
               ${optsForma}
             </select>
+            <input id="estornoContaNome" placeholder="Nome da conta para devolução (ex: João Silva - Nubank)"
+              style="width:100%;padding:8px;background:#0f0d24;border:1px solid #514c96;border-radius:8px;color:#fff;font-size:12px"
+              oninput="window._estornoContaNome=this.value">
           </div>
           <div id="resolucaoSel" style="font-size:12px;color:#9a95c9;margin-bottom:8px"></div>
           <button id="btnConfirmarRetirar" class="btn btn-mag" style="width:100%;display:none"
-            onclick="executarRetirarSeguir(${id},window._resolucaoSel||'registrar',${valorAbatido})">
+            onclick="executarRetirarSeguir(${id},window._resolucaoSel||'registrar',${diff},'${descItens.replace(/'/g,"\'")}')">
             ✅ Confirmar
           </button>
         </div>`;
       return;
     }
-    await executarRetirarSeguir(id,'ok',0);
-  }catch(e){ document.getElementById("retMsg").innerHTML=`<div class="err">Erro ao verificar pagamento</div>`; }
+
+    // Caso 2: não pago ou pago parcial e valor mudou para menos — falta pagamento
+    if(statusPag!=="pago"&&diff<-0.01){
+      const falta=Math.abs(diff);
+      const optsForma=formasPag.map(f=>`<option value="${f.id}">${esc(f.nome||f.id)}</option>`).join("");
+      window._novaFormaId=formasPag[0]?.id||""; window._novaFormaNome=formasPag[0]?.nome||"";
+      document.getElementById("retMsg").innerHTML=`
+        <div style="background:#1c1846;border:1px solid #ffd23f;border-radius:10px;padding:14px;margin-top:8px">
+          <div style="font-weight:900;font-size:14px;margin-bottom:6px;color:#ffd23f">💰 Valor do pedido mudou</div>
+          <div style="font-size:13px;margin-bottom:6px">
+            Já pago: <b style="color:#a8f0c8">${brl(valorPago)}</b> &nbsp;
+            Novo total: <b style="color:#ffd23f">${brl(valorNovoPedido)}</b> &nbsp;
+            <b style="color:#ff8090">Falta: ${brl(falta)}</b>
+          </div>
+          <div style="font-weight:700;margin-bottom:6px">Registrar pagamento adicional de ${brl(falta)}:</div>
+          <select id="novaFormaSelect" onchange="window._novaFormaId=this.value;window._novaFormaNome=this.options[this.selectedIndex].text"
+            style="width:100%;padding:8px;background:#0f0d24;border:1px solid #514c96;border-radius:8px;color:#fff;font-size:13px;margin-bottom:8px">
+            ${optsForma}
+          </select>
+          <div id="resolucaoSel" style="font-size:12px;color:#9a95c9;margin-bottom:8px"></div>
+          <button class="btn btn-grn" style="width:100%"
+            onclick="executarRetirarSeguir(${id},'pagamento_adicional',${-diff},'${descItens.replace(/'/g,"\'")}')">
+            ✅ Registrar e Confirmar
+          </button>
+        </div>`;
+      return;
+    }
+
+    // Caso 3: sem diferença ou não pago — segue normalmente
+    await executarRetirarSeguir(id,'ok',0,'');
+  }catch(e){ document.getElementById("retMsg").innerHTML=`<div class="err">Erro ao verificar pagamento: ${e.message}</div>`; }
 }
 
 function selecionarResolucao(btn,tipo){
   window._resolucaoSel=tipo;
-  document.querySelectorAll("#retMsg .btn").forEach(b=>b.style.opacity="0.5");
+  document.querySelectorAll("#retMsg .btn").forEach(b=>{ b.style.opacity="0.5"; b.style.outline=""; });
   btn.style.opacity="1"; btn.style.outline="2px solid #FF0082";
-  const formaBox=document.getElementById("estornoFormaBox");
-  if(formaBox) formaBox.style.display=tipo==="estorno"?"block":"none";
+  const box=document.getElementById("estornoDetalheBox");
+  if(box) box.style.display=tipo==="estorno"?"block":"none";
   const info=document.getElementById("resolucaoSel");
-  if(info) info.textContent=tipo==="credito"?"💳 Crédito registrado no cadastro do cliente":tipo==="estorno"?"↩ Estorno — informe a forma de pagamento do devolução":"📋 Apenas registrar a diferença";
+  if(info) info.textContent=
+    tipo==="credito"?"💳 Crédito será registrado no cadastro do cliente":
+    tipo==="estorno"?"↩ Devolução — informe a forma e nome da conta":
+    "📋 Só registrar a diferença no log";
   const btnConf=document.getElementById("btnConfirmarRetirar");
   if(btnConf) btnConf.style.display="block";
 }
 
-async function executarRetirarSeguir(id,resolucao,valorAbatido){
+async function executarRetirarSeguir(id,resolucao,valorAbatido,descItens){
   document.getElementById("retMsg").innerHTML=`<div class="muted">Salvando…</div>`;
   const itensFiltrados=window.itensEdit.filter(i=>i.quantidade>0);
   const ped=window.pedidoEditOrig;
@@ -910,6 +975,36 @@ async function executarRetirarSeguir(id,resolucao,valorAbatido){
     await fetch(B+"/api/pedidos/"+id+"/itens",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({itens:itensFiltrados.map(i=>({produtoId:i.produtoId,quantidade:i.quantidade,valor:i.valor}))})});
     await fetch(B+"/api/pedidos/"+id+"/situacao",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({idSituacao:destinoSit,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome})});
     await fetch(B+"/api/pendencias/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"resolvido"})}).catch(()=>{});
+
+    // Montar observação para salvar no Bling
+    if(resolucao!=="ok"&&(valorAbatido>0.01||resolucao==="pagamento_adicional")){
+      const histPag=(await fetch(B+"/api/pagamentos/"+id).then(r=>r.json()).catch(()=>({}))).data?.historico||[];
+      const histTxt=histPag.map(h=>`${h.formaNome||""}:${brl(h.valor||0)}`).join(", ");
+      let obs="";
+      if(resolucao==="estorno"){
+        const contaNome=window._estornoContaNome||"";
+        obs=`Estorno de ${brl(valorAbatido)} via ${window._estornoFormaNome||""}${contaNome?` para ${contaNome}`:""} em decorrência de pendências nos itens: ${descItens||""}. Pgto original: ${histTxt}`;
+      } else if(resolucao==="credito"){
+        obs=`Crédito de ${brl(valorAbatido)} registrado para o cliente em decorrência de pendências: ${descItens||""}. Pgto original: ${histTxt}`;
+      } else if(resolucao==="pagamento_adicional"){
+        obs=`Pgto adicional de ${brl(valorAbatido)} via ${window._novaFormaNome||""} referente a ajuste de itens: ${descItens||""}. Pgto anterior: ${histTxt}`;
+      } else {
+        obs=`Diferença de ${brl(valorAbatido)} registrada. Ajuste nos itens: ${descItens||""}. Pgto: ${histTxt}`;
+      }
+      if(obs) await fetch(B+"/api/pedidos/"+id+"/observacao",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({texto:obs,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome})}).catch(()=>{});
+      
+      // Pagamento adicional — registra nova forma
+      if(resolucao==="pagamento_adicional"&&window._novaFormaId){
+        await fetch(B+"/api/pagamentos/"+id,{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({valor:valorAbatido,formaId:window._novaFormaId,formaNome:window._novaFormaNome,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,adicional:true})}).catch(()=>{});
+      }
+      // Estorno — registra no pagamento
+      if(resolucao==="estorno"&&valorAbatido>0){
+        await fetch(B+"/api/pagamentos/"+id+"/estorno",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({valor:valorAbatido,formaId:window._estornoFormaId,formaNome:window._estornoFormaNome,contaNome:window._estornoContaNome||"",funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome})}).catch(()=>{});
+      }
+    }
+
     if(resolucao==="credito"&&valorAbatido>0&&ped?.contato?.id){
       await fetch(B+"/api/fluxo/"+id+"/confirmar-entrega",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,itensNaoEntregues:[],itensDanificados:[],valorAbatido,resolucao:"credito",clienteId:ped.contato.id,clienteNome:ped.contato.nome})}).catch(()=>{});
