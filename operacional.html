@@ -160,7 +160,7 @@ async function iniciar(){
 async function carregar(){
   try{
     if(!window._logsCache) window._logsCache={};
-    const sits=[SIT.AGUARDANDO,SIT.EM_SEP,SIT.SEP_PEND,SIT.SEPARADO,SIT.CONF_ENTREGA,SIT.EM_ROTA].filter(Boolean).join(",");
+    const sits=[SIT.AGUARDANDO,SIT.EM_SEP,SIT.SEP_PEND,SIT.SEPARADO,SIT.CONF_ENTREGA,SIT.EM_ROTA,SIT.ATENDIDO].filter(Boolean).join(",");
     // período configurável — padrão: últimos 7 dias
     const agora=new Date(); agora.setHours(agora.getHours()-3);
     const dataFim=periodoFim||agora.toISOString().slice(0,10);
