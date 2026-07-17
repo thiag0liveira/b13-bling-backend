@@ -224,11 +224,9 @@ function render(){
 
   const totalPed=colunas.reduce((s,c)=>s+pedidos.filter(p=>p.situacao?.id===c.sit).length,0);
   const cols=colunas.map(col=>{
-    // Filtrar Consumidor Final de todas as colunas exceto Atendidos
+    // Filtrar Consumidor Final de todas as colunas
     let lista=pedidos.filter(p=>p.situacao?.id===col.sit);
-    if(col.sit!==SIT.ATENDIDO){
-      lista=lista.filter(p=>p.contato?.nome&&!p.contato.nome.toLowerCase().includes("consumidor final"));
-    }
+    lista=lista.filter(p=>p.contato?.nome&&!p.contato.nome.toLowerCase().includes("consumidor final"));
 
     let cards="";
     if(!lista.length){
@@ -244,8 +242,8 @@ function render(){
       });
       cards=Object.values(grupos).map(g=>{
         const datas=[...new Set(g.pedidos.map(p=>p.data).filter(Boolean))].sort().reverse();
-        const dataStr=datas.length?datas.map(d=>new Date(d+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})).join(", "):"";
-        const nums=g.pedidos.map(p=>`<span onclick="abrirEditar(${p.id})" style="cursor:pointer;color:#9090ff;text-decoration:underline;font-size:11px">#${p.numero||p.id}</span>`).join(" ");
+        const dataStr=datas.map(d=>new Date(d+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit"})).join(", ");
+        const nums=g.pedidos.map(p=>`<span onclick="verPedidoAtendido(${p.id},'${esc(g.nome)}')" style="cursor:pointer;color:#9090ff;text-decoration:underline;font-size:11px">#${p.numero||p.id}</span>`).join(" ");
         return `<div class="pcard" style="border-left:3px solid #2f9e6b">
           <div style="font-weight:700;font-size:13px;margin-bottom:4px">${esc(g.nome)}</div>
           <div style="margin-bottom:3px;display:flex;flex-wrap:wrap;gap:4px">${nums}</div>
@@ -1407,6 +1405,50 @@ async function confirmarPagamento(id){
     if(r.ok&&j.ok){ fecharModal(); await carregar(); }
     else document.getElementById("pMsg").innerHTML=`<div class="err">${esc(j.erro||"Erro")}</div>`;
   }catch(e){ document.getElementById("pMsg").innerHTML=`<div class="err">Erro de conexão</div>`; }
+}
+
+async function verPedidoAtendido(id,nomeCliente){
+  document.getElementById("modal").style.display="flex";
+  document.getElementById("mbox").innerHTML=`<div class="muted">Carregando…</div>`;
+  try{
+    const [rPed,rPag,rLog]=await Promise.all([
+      fetch(B+"/api/pedidos/"+id).then(r=>r.json()),
+      fetch(B+"/api/pagamentos/"+id).then(r=>r.json()),
+      fetch(B+"/api/log/"+id).then(r=>r.json()),
+    ]);
+    const ped=rPed.data||rPed;
+    const pag=rPag.data;
+    const logItems=(rLog.data||[]).slice().reverse();
+    const pago=pag?.statusPagamento==="pago";
+    const itensHtml=(ped.itens||[]).map(i=>`
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px">
+        <span style="flex:1">${esc(i.descricao||i.produto?.nome||"")}</span>
+        <span class="muted" style="margin:0 10px">x${i.quantidade}</span>
+        <span>${brl((i.valor||0)*i.quantidade)}</span>
+      </div>`).join("");
+    const logHtml=logItems.slice(0,8).map(e=>{
+      const d=new Date(e.em||0).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+      return `<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid var(--border);color:#cfc9f5">
+        <span>${(e.evento||"").replace(/_/g," ")} <span style="color:#9a95c9">— ${e.funcionarioNome||""}</span></span>
+        <span style="color:#514c96;white-space:nowrap;margin-left:8px">${d}</span>
+      </div>`;
+    }).join("");
+    document.getElementById("mbox").innerHTML=`
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3>✅ Pedido ${esc(ped.numero||id)} — Atendido</h3>
+        <button class="btn btn-ghost" onclick="fecharModal()">✕</button>
+      </div>
+      <div class="muted" style="margin-bottom:8px">${esc(ped.contato?.nome||nomeCliente||"—")} · ${ped.data?new Date(ped.data+"T12:00:00").toLocaleDateString("pt-BR"):""}</div>
+      <div style="margin-bottom:10px">${itensHtml}</div>
+      <div style="display:flex;justify-content:space-between;font-weight:700;font-size:14px;padding:6px 0;margin-bottom:8px">
+        <span>Total</span><span style="color:#ffd23f">${brl(ped.totalProdutos||ped.total||0)}</span>
+      </div>
+      <div style="margin-bottom:10px;font-size:13px;padding:8px 12px;border-radius:8px;${pago?"background:#0a2a1a;color:#a8f0c8;border:1px solid #2f9e6b":"background:#2a0a00;color:#ff8090;border:1px solid #e5563f"}">
+        ${pago?`✅ Pago — R$ ${(pag.valorPago||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}`:"⏳ Não pago"}
+      </div>
+      ${logHtml?`<div style="font-size:11px;color:#9a95c9;font-weight:700;margin-bottom:4px">HISTÓRICO</div>${logHtml}`:""}
+      <button class="btn btn-ghost" style="width:100%;margin-top:12px" onclick="fecharModal()">Fechar</button>`;
+  }catch(e){ document.getElementById("mbox").innerHTML=`<div class="err">Erro ao carregar</div>`; }
 }
 
 async function abrirEditar(id){
