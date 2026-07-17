@@ -384,10 +384,9 @@ function montarBotoes(p,aba,pago,parcial){
   // ABA: c/ pendências
   if(sit===SIT.SEP_PEND){
     return `<div style="display:flex;gap:6px;flex-wrap:wrap;width:100%">
-      ${PODE("editar_pedido")?`<button class="btn btn-ghost" style="flex:1" onclick="abrirEditar(${id})">🔧 Resolver pendências</button>`:""}
+      ${(PODE("ver_pend")||PODE("editar_pedido"))?`<button class="btn btn-mag" style="flex:1;font-weight:900" onclick="resolverPendencias(${id})">✂️ Resolver pendências</button>`:""}
       ${PODE("admin")?`<button class="btn btn-yellow" style="flex:1" onclick="enviarSepNovamente(${id})">↩ Voltar separação</button>`:""}
-      ${PODE("ver_pend")?`<button class="btn btn-grn" style="flex:1" onclick="retirarPendenciasESeguir(${id})">✂️ Retirar pendências e confirmar</button>`:""}
-    </div>`;
+    </div>`
   }
   // ABA: separados — conferente
   if(sit===SIT.SEPARADO && PODE("conferir")){
@@ -740,6 +739,42 @@ async function voltarPendencias(id){
   }catch(e){ showMsg(id,`<div class="err">Erro de conexão</div>`); }
 }
 
+// Função unificada — abre modal de resolver pendências com abas
+async function resolverPendencias(id){
+  document.getElementById("modal").style.display="flex";
+  document.getElementById("mbox").innerHTML=`<div class="muted">Carregando…</div>`;
+  try{
+    const [rPed,rPag,rPend]=await Promise.all([
+      fetch(B+"/api/pedidos/"+id).then(r=>r.json()),
+      fetch(B+"/api/pagamentos/"+id).then(r=>r.json()),
+      fetch(B+"/api/pendencias/"+id).then(r=>r.json()),
+    ]);
+    const ped=rPed.data||rPed;
+    const faltas=(rPend.data?.faltas)||[];
+    window.pedidoEditOrig=ped;
+    window._pendFaltas=faltas;
+    window.pedidoEditId=id;
+    // monta itensEdit com dados de falta
+    window.itensEdit=(ped.itens||[]).map(i=>{
+      const falta=faltas.find(f=>f.produtoId===i.produto?.id||f.descricao===i.descricao);
+      return {
+        produtoId:i.produto?.id,
+        descricao:i.descricao||i.produto?.nome||"",
+        quantidade:falta?falta.temQtd:i.quantidade,
+        quantidadeOriginal:i.quantidade,
+        temQtd:falta?.temQtd??i.quantidade,
+        faltaQtd:falta?.falta||0,
+        valor:i.valor,
+        _teveFalta:!!falta,
+        _removido:false,
+      };
+    });
+    renderRetirarPend(id,faltas);
+  }catch(e){
+    document.getElementById("mbox").innerHTML=`<div class="err">Erro ao carregar pedido</div>`;
+  }
+}
+
 async function retirarPendenciasESeguir(id){
   document.getElementById("modal").style.display="flex";
   document.getElementById("mbox").innerHTML=`<div class="muted">Carregando pendências…</div>`;
@@ -765,11 +800,50 @@ async function retirarPendenciasESeguir(id){
   }catch(e){ document.getElementById("mbox").innerHTML=`<div class="err">Erro ao carregar</div>`; }
 }
 
+// Busca produto para acrescentar nas pendências
+let _buscaNovoTimer=null;
+async function buscarNovoItemPend(q,id){
+  clearTimeout(_buscaNovoTimer);
+  const res=document.getElementById("resultadosNovoItem");
+  if(!q||q.length<2){ if(res) res.innerHTML=""; return; }
+  _buscaNovoTimer=setTimeout(async()=>{
+    try{
+      res.innerHTML=`<div class="muted" style="font-size:11px;padding:4px">Buscando…</div>`;
+      const r=await fetch(B+"/api/produtos/buscar?q="+encodeURIComponent(q)).then(r=>r.json());
+      const prods=(r.data||[]).slice(0,6);
+      if(!prods.length){ res.innerHTML=`<div class="muted" style="font-size:11px;padding:4px">Nenhum produto encontrado</div>`; return; }
+      res.innerHTML=prods.map(p=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px"
+          onclick="acrescentarItemPend(${JSON.stringify(p).replace(/"/g,'&quot;')},${id})">
+          <div style="flex:1"><b>${esc(p.nome)}</b> <span class="muted">#${p.codigo}</span></div>
+          <div style="color:#ffd23f">${brl(p.preco||0)}</div>
+          <button class="btn btn-ghost" style="padding:3px 8px;font-size:11px">+ Add</button>
+        </div>`).join("");
+    }catch(e){ res.innerHTML=`<div class="err" style="font-size:11px">Erro ao buscar</div>`; }
+  },400);
+}
+
+function acrescentarItemPend(prod,id){
+  const existe=window.itensEdit.find(i=>String(i.produtoId)===String(prod.id));
+  if(existe){ existe.quantidade++; existe.quantidadeOriginal=(existe.quantidadeOriginal||0)+1; }
+  else{
+    window.itensEdit.push({
+      produtoId:prod.id, descricao:prod.nome||prod.descricao||"",
+      quantidade:1, quantidadeOriginal:0, temQtd:0, faltaQtd:0,
+      valor:prod.preco||0, _teveFalta:false, _removido:false, _novo:true,
+    });
+  }
+  document.getElementById("buscaNovoItem").value="";
+  document.getElementById("resultadosNovoItem").innerHTML="";
+  renderRetirarPend(id,window._pendFaltas||[]);
+}
+
 function calcDestinoAtual(){
   const items=window.itensEdit||[];
   const removidos=items.filter(i=>i._removido||i.quantidade===0);
   const qtdAlterada=items.filter(i=>!i._removido&&i.quantidade>0&&i._teveFalta&&i.quantidade!==i.temQtd);
-  return (removidos.length>0||qtdAlterada.length>0) ? "sep" : "separado";
+  const novos=items.filter(i=>i._novo&&!i._removido&&i.quantidade>0);
+  return (removidos.length>0||qtdAlterada.length>0||novos.length>0) ? "sep" : "separado";
 }
 
 function atualizarBtnDestino(){
@@ -829,6 +903,14 @@ function renderRetirarPend(id,faltas){
     <div style="max-height:45vh;overflow:auto;padding-right:2px">${rows}</div>
     <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:6px">
       <span class="muted">Total ajustado:</span><b style="color:#ffd23f">${brl(total)}</b>
+    </div>
+    <div id="retMsg"></div>
+    <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">➕ Acrescentar produto:</div>
+      <div style="display:flex;gap:6px">
+        <input id="buscaNovoItem" placeholder="Buscar produto no Bling…" style="flex:1;background:#0f0d24;border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:#fff;font-size:12px" oninput="buscarNovoItemPend(this.value,${id})">
+      </div>
+      <div id="resultadosNovoItem" style="max-height:120px;overflow-y:auto;margin-top:4px"></div>
     </div>
     <div id="retMsg"></div>
     <div style="display:flex;gap:8px;margin-top:10px">
@@ -957,11 +1039,12 @@ async function executarRetirarSeguir(id,resolucao,valorAbatido,descItens){
     const itensComQtdAlterada=itensOriginais.filter(i=>
       !i._removido && i.quantidade>0 && i._teveFalta && i.quantidade!==i.temQtd
     );
+    const itensNovosAdd=itensOriginais.filter(i=>i._novo&&!i._removido&&i.quantidade>0);
 
     // Regra:
     // → Confirmou com a qtd que tinha (temQtd) = vai para SEPARADO
-    // → Removeu item OU mudou qtd diferente do que tinha = volta para EM SEPARAÇÃO
-    const temAlteracao = itensRemovidos.length>0 || itensComQtdAlterada.length>0;
+    // → Removeu item OU mudou qtd OU adicionou item novo = volta para EM SEPARAÇÃO
+    const temAlteracao = itensRemovidos.length>0 || itensComQtdAlterada.length>0 || itensNovosAdd.length>0;
     const destinoSit  = temAlteracao ? SIT.EM_SEP : SIT.SEPARADO;
     const logEvento   = temAlteracao ? "pendencias_voltou_separacao" : "pendencias_confirmadas_separado";
 

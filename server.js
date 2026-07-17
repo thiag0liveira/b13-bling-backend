@@ -208,6 +208,17 @@ app.get("/api/produtos",async(req,res)=>{ try{ res.json(await bling(`/produtos?p
 app.get("/api/categorias",async(req,res)=>{ try{ res.json(await bling(`/categorias/produtos?limite=100`)); }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }});
 app.get("/api/produto/:id",async(req,res)=>{ try{ res.json(await bling(`/produtos/${req.params.id}`)); }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }});
 app.get("/api/raw",async(req,res)=>{ try{ const p=req.query.path; if(!p||!p.startsWith("/")) return res.status(400).json({erro:"?path=/endpoint"}); res.json(await bling(p)); }catch(e){ res.status(e.status||500).json({erro:e.message,body:e.body}); }});
+// Busca produto por nome (para acrescentar em pedidos)
+app.get("/api/produtos/buscar", async(req,res)=>{
+  try{
+    const q=req.query.q||"";
+    if(!q) return res.json({data:[]});
+    const est=await getEstoqueMap();
+    const prods=Object.values(est).filter(p=>p.nome&&p.nome.toLowerCase().includes(q.toLowerCase())).slice(0,10);
+    res.json({data:prods.map(p=>({id:p.id,codigo:p.codigo,nome:p.nome,preco:p.preco||0,imagem:p.imagem||""}))});
+  }catch(e){ res.status(500).json({erro:e.message,data:[]}); }
+});
+
 // Debug: busca pedidos dos últimos 3 dias por situação
 app.get("/api/debug/pedidos-hoje", async(req,res)=>{
   try{
