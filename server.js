@@ -409,9 +409,6 @@ app.patch("/api/acrescimos/:id",(req,res)=>{
 function lerPag(){ return lerJSON(PAG_FILE,{}); }
 function salvarPag(o){ salvarJSON(PAG_FILE,o); }
 
-app.get("/api/pagamentos/:id",(req,res)=>{
-  const pags=lerPag(); res.json({data:pags[String(req.params.id)]||null});
-});
 app.post("/api/pagamentos/:id",async(req,res)=>{
   try{
     const {valor,formaId,formaNome,obs,funcionarioId,funcionarioNome,substituir}=req.body||{};
@@ -457,12 +454,70 @@ app.post("/api/pagamentos/:id/resetar",(req,res)=>{
 });
 
 // Buscar histórico de pagamento de um pedido específico
-app.get("/api/pagamentos/:id",(req,res)=>{
-  const pags=lerPag(); const id=String(req.params.id);
-  res.json({data:pags[id]||null});
+app.get("/api/pagamentos/:id",async(req,res)=>{
+  try{
+    const pags=lerPag(); const id=String(req.params.id);
+    const pagLocal=pags[id]||null;
+    
+    // Se tem pagamento local, verifica divergência com Bling
+    if(pagLocal){
+      try{
+        const rPed=await bling(`/pedidos/vendas/${id}`);
+        const ped=rPed?.data||{};
+        const parcelas=ped.parcelas||[];
+        const parcelasPagas=parcelas.filter(p=>
+          p.situacao?.id===2||p.situacao?.valor===2||
+          p.situacao?.descricao==="Pago"||p.dataRecebimento
+        );
+        if(parcelasPagas.length>0){
+          const valorBling=+parcelasPagas.reduce((s,p)=>s+(p.valor||0),0).toFixed(2);
+          const valorLocal=+(pagLocal.valorPago||0);
+          const diff=Math.abs(valorBling-valorLocal);
+          if(diff>0.05){
+            return res.json({data:{...pagLocal,_divergencia:{
+              valorLocal,valorBling,
+              diff:+(valorBling-valorLocal).toFixed(2),
+              msg:`Divergência: sistema R$ ${valorLocal.toFixed(2)}, Bling R$ ${valorBling.toFixed(2)}`
+            }}});
+          }
+        }
+      }catch(e){ /* silencioso */ }
+      return res.json({data:pagLocal});
+    }
+
+    // Verifica se passou pelo nosso fluxo
+    const logPedido=(lerLog()[id]||[]);
+    const passouPeloNossoFluxo=logPedido.some(e=>
+      ["separar_para_entregar","enviado_separacao_pago","pedido_aberto_separacao",
+       "separacao_completa","separacao_com_falta","conferido_entrega","conferido_retirada",
+       "pagamento_registrado","recebido_cliente_separou"].includes(e.evento)
+    );
+    if(passouPeloNossoFluxo) return res.json({data:null});
+
+    // Pedido do Bling direto — verifica parcelas
+    const rPed=await bling(`/pedidos/vendas/${id}`);
+    const ped=rPed?.data||{};
+    const parcelas=ped.parcelas||[];
+    const totalPed=+(ped.totalProdutos||ped.total||0);
+    const parcelasPagas=parcelas.filter(p=>
+      p.situacao?.id===2||p.situacao?.valor===2||
+      p.situacao?.descricao==="Pago"||p.dataRecebimento
+    );
+    const valorPago=+parcelasPagas.reduce((s,p)=>s+(p.valor||0),0).toFixed(2);
+    if(valorPago>0.01){
+      const formaPag=ped.formaPagamento;
+      return res.json({data:{
+        pedidoId:id,valorPago,valorPedido:totalPed,
+        statusPagamento:valorPago>=totalPed-0.01?"pago":"parcial",
+        historico:[{valor:valorPago,formaNome:formaPag?.descricao||"Bling",origem:"bling",em:Date.now()}],
+        _doBling:true
+      }});
+    }
+    res.json({data:null});
+  }catch(e){ res.json({data:null}); }
 });
 
-// Formas de pagamento (cadastradas no sistema)
+
 app.get("/api/formas-pagamento",async(req,res)=>{
   // tenta o Bling primeiro com endpoint correto
   try{

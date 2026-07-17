@@ -336,9 +336,10 @@ function cardPedido(p,aba){
   const pago=pag?.statusPagamento==="pago";
   const parcial=pag?.statusPagamento==="parcial";
   const saldo=pag?+(pag.valorPedido||p.total||0)-(pag.valorPago||0):0;
+  const diverg=pag?._divergencia;
 
   let pagInfo="";
-  if(pago) pagInfo=`<div class="pag-info">✅ Pago — ${brl(pag.valorPago)}</div>`;
+  if(pago) pagInfo=`<div class="pag-info">✅ Pago — ${brl(pag.valorPago)}${diverg?` <span title="${esc(diverg.msg||'')}" style="color:#ffd23f;font-size:10px;cursor:help">⚠️ divergência</span>`:""}</div>`;
   else if(parcial) pagInfo=`<div class="pag-pend">⚠️ Pago parcial ${brl(pag.valorPago)} · falta ${brl(Math.abs(saldo))}</div>`;
   else if(pag?.statusPagamento==="pendente") pagInfo=`<div class="pag-pend">💰 Pagamento pendente</div>`;
 
