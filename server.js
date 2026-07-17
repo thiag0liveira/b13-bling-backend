@@ -1737,7 +1737,7 @@ app.get("/pedido/:id/nota", async(req,res)=>{
     const ped=rPed?.data||{};
     const pago=pag?.statusPagamento==="pago";
     const itens=(ped.itens||[]);
-    const qrUrl=`${BASE}/pedido/${id}/status`;
+    const qrUrl=`${BASE}/pedido/${id}/acompanhar`; // link público para o cliente
     const confUrl=`${BASE}/conferencia?pedido=${id}`;
     const itensHtml=itens.map(i=>`
       <tr>
@@ -1818,7 +1818,122 @@ th{font-size:10px;color:#888;padding:4px 6px;border-bottom:2px solid #ddd;text-a
   }catch(e){ res.status(500).send("Erro: "+e.message); }
 });
 
-// Página de status atualizado do pedido (lida via QR)
+// Mapeamento de eventos de log
+const LOG_LABELS={
+  "separar_para_entregar":    {txt:"Pedido enviado para separação",          admin:false},
+  "enviado_separacao_pago":   {txt:"Pedido enviado para separação (pago)",   admin:false},
+  "pedido_aberto_separacao":  {txt:"Separação iniciada",                     admin:false},
+  "pedido_aberto_conferencia":{txt:"Conferência iniciada",                   admin:true},
+  "separacao_completa":       {txt:"Separação concluída",                    admin:false},
+  "separacao_com_falta":      {txt:"Separação com pendências",               admin:false},
+  "pedido_liberado_separacao":{txt:"Separação pausada",                      admin:true},
+  "pedido_liberado_automatico":{txt:"Separação liberada automaticamente",    admin:true},
+  "voltou_separacao":         {txt:"Retornou para separação",                admin:true},
+  "seguiu_sem_pendencias":    {txt:"Pendências resolvidas",                  admin:false},
+  "pagamento_registrado":     {txt:"Pagamento registrado",                   admin:true},
+  "pagamento_resetado":       {txt:"Pagamento estornado",                    admin:true},
+  "recebido_cliente_separou": {txt:"Recebido — cliente já havia separado",   admin:false},
+  "conferido_entrega":        {txt:"Pedido conferido — saiu para entrega",   admin:false},
+  "conferido_retirada":       {txt:"Pedido conferido — retirada no local",   admin:false},
+  "foto_conferencia":         {txt:"Foto registrada na conferência",         admin:true},
+};
+
+// Status público para cliente (tradução simples)
+function statusPublico(sit){
+  const m={
+    "AGUARDANDO SEPARAÇÃO (SISTEMA)": {emoji:"⏳", txt:"Pedido recebido — aguardando separação"},
+    "AGUARDANDO SEPARAÇÃO":           {emoji:"⏳", txt:"Pedido recebido — aguardando separação"},
+    "Em Separação":                   {emoji:"📦", txt:"Pedido em separação"},
+    "SEPARADO C/ PENDÊNCIAS":         {emoji:"⚠️", txt:"Pedido com pendências"},
+    "SEPARADO":                       {emoji:"✅", txt:"Pedido separado"},
+    "Em Rota":                        {emoji:"🚚", txt:"Pedido saiu para entrega"},
+    "Atendido":                       {emoji:"🎉", txt:"Pedido entregue"},
+    "Em digitação":                   {emoji:"📝", txt:"Pedido em processamento"},
+  };
+  return m[sit]||{emoji:"📋", txt:sit};
+}
+
+// Página pública de status para o CLIENTE
+app.get("/pedido/:id/acompanhar", async(req,res)=>{
+  try{
+    const id=req.params.id;
+    const [rPed,pag,logArr]=await Promise.all([
+      bling(`/pedidos/vendas/${id}`),
+      Promise.resolve(lerPag()[id]||null),
+      Promise.resolve((lerLog()[id]||[])),
+    ]);
+    const ped=rPed?.data||{};
+    const sit=ped.situacao?.nome||"—";
+    const sp=statusPublico(sit);
+    const pago=pag?.statusPagamento==="pago";
+
+    // Separador ativo (só mostra se Em Separação)
+    let separador="";
+    if(sit==="Em Separação"){
+      const ev=(logArr||[]).filter(e=>e.evento==="pedido_aberto_separacao"||e.evento==="separacao_completa");
+      const ultimo=ev[ev.length-1];
+      if(ultimo?.evento==="pedido_aberto_separacao") separador=ultimo.funcionarioNome||"";
+    }
+
+    // Cor por status
+    const cor={
+      "AGUARDANDO SEPARAÇÃO (SISTEMA)":"#fbff00","AGUARDANDO SEPARAÇÃO":"#fbff00",
+      "Em Separação":"#00aaff","SEPARADO C/ PENDÊNCIAS":"#ff8090",
+      "SEPARADO":"#a855f7","Em Rota":"#FF0082","Atendido":"#3FB57A",
+    }[sit]||"#9a95c9";
+
+    const html=`<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="30">
+<title>Meu Pedido #${ped.numero||id}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0920;color:#e8e4ff;font-family:system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:#12103a;border:1px solid #2a2660;border-radius:20px;max-width:360px;width:100%;overflow:hidden;text-align:center}
+.topo{background:#262366;padding:16px;border-bottom:3px solid #FF0082}
+.logo{font-size:24px;font-weight:900;color:#FF0082}
+.sub{font-size:11px;color:#cfc9f5;margin-top:2px}
+.num{font-size:13px;color:#9a95c9;margin-top:6px}
+.status-emoji{font-size:56px;padding:24px 16px 8px}
+.status-txt{font-size:18px;font-weight:900;padding:0 20px 16px;line-height:1.3}
+.status-bar{padding:8px 20px;font-size:12px;font-weight:700;margin-bottom:16px}
+.info{padding:0 20px 20px;display:flex;flex-direction:column;gap:8px}
+.info-row{background:#0f0d24;border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.info-label{color:#9a95c9;font-size:11px}
+.info-val{font-weight:700}
+.pag-ok{color:#a8f0c8}
+.pag-nd{color:#ffd23f}
+.sep-row{background:#001a40;border:1px solid #00aaff33;border-radius:8px;padding:10px 14px;font-size:12px;color:#a8c8f0}
+.rodape{padding:12px;font-size:10px;color:#514c96;border-top:1px solid #1a1840}
+</style></head><body>
+<div class="card">
+  <div class="topo">
+    <div class="logo">B13 BEBIDAS</div>
+    <div class="sub">Av. Brig. Eduardo Gomes, 1668 — Glória, BH</div>
+    <div class="num">Pedido #${ped.numero||id} · ${ped.data?new Date(ped.data).toLocaleDateString("pt-BR"):""}</div>
+  </div>
+  <div class="status-emoji">${sp.emoji}</div>
+  <div class="status-txt">${sp.txt}</div>
+  <div class="status-bar" style="background:${cor}22;color:${cor}">${sit}</div>
+  <div class="info">
+    <div class="info-row">
+      <div><div class="info-label">Cliente</div><div class="info-val">${ped.contato?.nome||"—"}</div></div>
+    </div>
+    <div class="info-row">
+      <div><div class="info-label">Total</div><div class="info-val">R$ ${(ped.totalProdutos||ped.total||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}</div></div>
+      <div class="${pago?"pag-ok":"pag-nd"}">${pago?"✅ Pago":"⏳ Aguardando pgto"}</div>
+    </div>
+    ${separador?`<div class="sep-row">📦 Sendo separado por <b>${separador}</b></div>`:""}
+  </div>
+  <div class="rodape">Atualiza automaticamente a cada 30s · ${new Date().toLocaleString("pt-BR")}</div>
+</div>
+</body></html>`;
+    res.setHeader("Content-Type","text/html;charset=utf-8");
+    res.send(html);
+  }catch(e){ res.status(500).send("Erro: "+e.message); }
+});
+
+// Página de status ADMIN (completa, com todo o histórico)
 app.get("/pedido/:id/status", async(req,res)=>{
   try{
     const id=req.params.id;
@@ -1826,55 +1941,71 @@ app.get("/pedido/:id/status", async(req,res)=>{
     const [rPed,pag,logArr]=await Promise.all([
       bling(`/pedidos/vendas/${id}`),
       Promise.resolve(lerPag()[id]||null),
-      Promise.resolve((lerLog()[id]||[]).slice(-6).reverse()),
+      Promise.resolve((lerLog()[id]||[])),
     ]);
     const ped=rPed?.data||{};
-    const sit=ped.situacao?.nome||ped.situacao?.descricao||ped.situacao?.value||"—";
+    const sit=ped.situacao?.nome||ped.situacao?.descricao||"—";
     console.log("Status pedido",id,"situacao:",JSON.stringify(ped.situacao));
-    const sitCor={"AGUARDANDO SEPARAÇÃO (SISTEMA)":"#fbff00","AGUARDANDO SEPARAÇÃO":"#fbff00","Em Separação":"#00aaff","SEPARADO C/ PENDÊNCIAS":"#d400ff","SEPARADO":"#a855f7","Em Rota":"#6d2390","Atendido":"#3FB57A","Em digitação":"#9a95c9"}[sit]||"#9a95c9";
+    const cor={"AGUARDANDO SEPARAÇÃO (SISTEMA)":"#fbff00","AGUARDANDO SEPARAÇÃO":"#fbff00","Em Separação":"#00aaff","SEPARADO C/ PENDÊNCIAS":"#d400ff","SEPARADO":"#a855f7","Em Rota":"#6d2390","Atendido":"#3FB57A","Em digitação":"#9a95c9"}[sit]||"#9a95c9";
     const pago=pag?.statusPagamento==="pago";
     const confUrl=`${BASE}/conferencia?pedido=${id}`;
-    const logHtml=logArr.map(e=>{
+    const pubUrl=`${BASE}/pedido/${id}/acompanhar`;
+
+    const logHtml=(logArr||[]).slice().reverse().map(e=>{
+      const lbl=LOG_LABELS[e.evento]||{txt:e.evento?.replace(/_/g," ")||"",admin:false};
       const d=new Date(e.em||0);
       const dt=d.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
-      return `<div style="font-size:12px;padding:5px 0;border-bottom:1px solid #1a1840;color:#cfc9f5">${(e.evento||"").replace(/_/g," ")} <b>${e.funcionarioNome||""}</b><span style="float:right;color:#888;font-size:10px">${dt}</span></div>`;
+      const extra=e.detalhes?.valor?` · R$ ${Number(e.detalhes.valor).toLocaleString("pt-BR",{minimumFractionDigits:2})}`:"";
+      const adminBadge=lbl.admin?`<span style="background:#FF008833;color:#FF0082;border-radius:3px;padding:1px 5px;font-size:9px;margin-left:4px">admin</span>`:"";
+      return `<div style="font-size:12px;padding:5px 0;border-bottom:1px solid #1a1840;display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="color:#cfc9f5">${lbl.txt}${extra}${adminBadge} <span style="color:#9a95c9;font-size:10px">— ${e.funcionarioNome||""}</span></div>
+        <div style="color:#514c96;font-size:10px;white-space:nowrap">${dt}</div>
+      </div>`;
     }).join("");
+
     const html=`<!DOCTYPE html><html lang="pt-BR"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Status Pedido #${ped.numero||id}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0a0920;color:#e8e4ff;font-family:system-ui,sans-serif;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:20px}
-.card{background:#12103a;border:1px solid #2a2660;border-radius:16px;max-width:380px;width:100%;overflow:hidden}
+body{background:#0a0920;color:#e8e4ff;font-family:system-ui,sans-serif;min-height:100vh;padding:20px;display:flex;justify-content:center}
+.card{background:#12103a;border:1px solid #2a2660;border-radius:16px;max-width:420px;width:100%;overflow:hidden;align-self:flex-start}
 .topo{background:#262366;padding:14px 16px;display:flex;justify-content:space-between;align-items:center}
-.logo{font-size:18px;font-weight:900;color:#FF0082}
-.num{font-size:13px;color:#cfc9f5}
-.status{padding:10px 16px;text-align:center;font-weight:900;font-size:15px;border-bottom:1px solid #2a2660}
+.logo{font-size:16px;font-weight:900;color:#FF0082}
+.num{font-size:12px;color:#cfc9f5}
+.status{padding:8px 16px;text-align:center;font-weight:900;font-size:14px;border-bottom:1px solid #2a2660}
 .sec{padding:10px 16px;border-bottom:1px solid #2a2660}
 .sec-t{font-size:10px;color:#9a95c9;font-weight:700;text-transform:uppercase;margin-bottom:4px}
-.total{font-size:20px;font-weight:900;color:#ffd23f}
-.pag-ok{color:#a8f0c8;font-size:13px;margin-top:4px}
-.pag-pend{color:#ff8090;font-size:13px;margin-top:4px}
-.btn-conf{display:block;background:#a855f7;color:#fff;padding:14px;border-radius:10px;text-align:center;font-weight:900;font-size:15px;text-decoration:none;margin:16px}
-.rodape{text-align:center;font-size:10px;color:#514c96;padding:10px 16px}
+.total{font-size:18px;font-weight:900;color:#ffd23f}
+.pag-ok{color:#a8f0c8;font-size:12px;margin-top:4px}
+.pag-pend{color:#ffd23f;font-size:12px;margin-top:4px}
+.acoes{display:flex;flex-direction:column;gap:8px;padding:14px 16px}
+.btn-conf{display:block;background:#a855f7;color:#fff;padding:12px;border-radius:8px;text-align:center;font-weight:700;font-size:14px;text-decoration:none}
+.btn-pub{display:block;background:#0f0d24;color:#9a95c9;padding:10px;border-radius:8px;text-align:center;font-size:12px;text-decoration:none;border:1px solid #2a2660}
+.admin-tag{background:#FF008822;color:#FF0082;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:700}
+.rodape{padding:10px 16px;text-align:center;font-size:10px;color:#514c96}
 </style></head><body>
 <div class="card">
   <div class="topo">
-    <div class="logo">B13 BEBIDAS</div>
-    <div class="num">Pedido #${ped.numero||id}</div>
+    <div><div class="logo">B13 BEBIDAS <span class="admin-tag">ADMIN</span></div><div class="num">Pedido #${ped.numero||id}</div></div>
   </div>
-  <div class="status" style="background:${sitCor}22;color:${sitCor}">${sit}</div>
+  <div class="status" style="background:${cor}22;color:${cor}">${sit}</div>
   <div class="sec">
     <div class="sec-t">Cliente</div>
-    <div style="font-size:15px;font-weight:700">${ped.contato?.nome||"—"}</div>
+    <div style="font-size:14px;font-weight:700">${ped.contato?.nome||"—"}</div>
+    ${ped.contato?.telefone?`<div style="font-size:11px;color:#9a95c9;margin-top:2px">📞 ${ped.contato.telefone}</div>`:""}
   </div>
   <div class="sec">
-    <div class="sec-t">Total</div>
+    <div class="sec-t">Financeiro</div>
     <div class="total">R$ ${(ped.totalProdutos||ped.total||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
     ${pago?`<div class="pag-ok">✅ Pago: R$ ${(pag.valorPago||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>`:`<div class="pag-pend">⏳ Aguardando pagamento</div>`}
+    ${pag?.historico?.length?`<div style="font-size:10px;color:#514c96;margin-top:4px">${pag.historico.map(h=>`${h.formaNome||""}: R$ ${(h.valor||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}`).join(" · ")}</div>`:""}
   </div>
-  ${logHtml?`<div class="sec"><div class="sec-t">Histórico</div>${logHtml}</div>`:""}
-  <a href="${confUrl}" class="btn-conf">🔍 Abrir na Conferência</a>
+  ${logHtml?`<div class="sec"><div class="sec-t">Histórico completo</div>${logHtml}</div>`:""}
+  <div class="acoes">
+    <a href="${confUrl}" class="btn-conf">🔍 Abrir na Conferência</a>
+    <a href="${pubUrl}" target="_blank" class="btn-pub">👁 Ver página do cliente</a>
+  </div>
   <div class="rodape">Atualizado em ${new Date().toLocaleString("pt-BR")}</div>
 </div>
 </body></html>`;
@@ -1882,6 +2013,7 @@ body{background:#0a0920;color:#e8e4ff;font-family:system-ui,sans-serif;min-heigh
     res.send(html);
   }catch(e){ res.status(500).send("Erro: "+e.message); }
 });
+
 
 
 // Importar NF-e por chave de acesso via Bling → SEFAZ
