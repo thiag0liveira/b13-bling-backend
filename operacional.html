@@ -874,9 +874,9 @@ function mudaQtdNovo(key,delta,un){
   if(el) el.textContent=un>1?`${_qtdsNovo[k]/un}cx (${_qtdsNovo[k]}un)`:_qtdsNovo[k]+"un";
 }
 
-function addProdutoPend(prod,sabor,id){
+function addProdutoPend(prod,sabor,id,qtdForcar){
   const key=String((sabor?.id||sabor?.codigo||prod.id||prod.nome)).replace(/\W/g,"_");
-  const qtd=_qtdsNovo[key]||prod.un||1;
+  const qtd=qtdForcar||_qtdsNovo[key]||prod.un||1;
   const prodId=sabor?.id||prod.id||null;
   const nome=sabor?`${prod.nome} ${sabor.nome}`:prod.nome;
   const existe=window.itensEdit.find(i=>String(i.produtoId)===String(prodId)||i.descricao===nome);
@@ -900,7 +900,11 @@ function addProdutoPendIdx(mi,si,pedidoId){
   const p=window._buscaMatches?.[mi];
   if(!p) return;
   const sabor=si!=null?p.sabores?.[si]:null;
-  addProdutoPend(p,sabor,pedidoId);
+  // pega qtd do stepper
+  const key=si!=null?`p${mi}s${si}`:`p${mi}n`;
+  const qtdStepper=(_qtdsNovo[key]||0);
+  const qtd=qtdStepper>0?qtdStepper:(p.un||1);
+  addProdutoPend(p,sabor,pedidoId,qtd);
 }
 
 // Manter compatibilidade
