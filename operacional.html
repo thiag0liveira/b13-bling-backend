@@ -160,19 +160,23 @@ async function iniciar(){
 async function carregar(){
   try{
     if(!window._logsCache) window._logsCache={};
-    const sits=[SIT.AGUARDANDO,SIT.EM_SEP,SIT.SEP_PEND,SIT.SEPARADO,SIT.CONF_ENTREGA,SIT.EM_ROTA,SIT.ATENDIDO].filter(Boolean).join(",");
+    const sits=[SIT.AGUARDANDO,SIT.EM_SEP,SIT.SEP_PEND,SIT.SEPARADO,SIT.CONF_ENTREGA,SIT.EM_ROTA].filter(Boolean).join(",");
     // período configurável — padrão: últimos 7 dias
     const agora=new Date(); agora.setHours(agora.getHours()-3);
     const dataFim=periodoFim||agora.toISOString().slice(0,10);
     const dataIni=periodoIni||new Date(agora-7*86400000).toISOString().slice(0,10);
-    const [rPed,rPag,rAcr,rSep,rPend]=await Promise.all([
+    const [rPed,rAtend,rPag,rAcr,rSep,rPend]=await Promise.all([
       fetch(B+`/api/pedidos?limite=100&dataInicial=${dataIni}&dataFinal=${dataFim}&idsSituacoes=`+sits).then(r=>r.json()),
+      fetch(B+`/api/pedidos?limite=100&dataInicial=${dataIni}&dataFinal=${dataFim}&idsSituacoes=${SIT.ATENDIDO}`).then(r=>r.json()),
       fetch(B+"/api/pagamentos").then(r=>r.json()),
       fetch(B+"/api/acrescimos").then(r=>r.json()),
       fetch(B+"/api/separacoes").then(r=>r.json()),
       fetch(B+"/api/pendencias").then(r=>r.json()),
     ]);
-    pedidos=rPed.data||[];
+    // junta pedidos normais + atendidos (sem duplicatas)
+    const todosIds=new Set();
+    const todosPedidos=[...(rPed.data||[]),...(rAtend.data||[])].filter(p=>{ if(todosIds.has(p.id)) return false; todosIds.add(p.id); return true; });
+    pedidos=todosPedidos;
     pags=rPag.data||{};
     // carrega logs dos pedidos Em Separação em background (para saber origem)
     pedidos.filter(p=>p.situacao?.id===SIT.EM_SEP).forEach(p=>{
@@ -241,10 +245,10 @@ function render(){
       cards=Object.values(grupos).map(g=>{
         const datas=[...new Set(g.pedidos.map(p=>p.data).filter(Boolean))].sort().reverse();
         const dataStr=datas.length?datas.map(d=>new Date(d+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})).join(", "):"";
-        const nums=g.pedidos.map(p=>`#${p.numero||p.id}`).join(", ");
+        const nums=g.pedidos.map(p=>`<span onclick="abrirEditar(${p.id})" style="cursor:pointer;color:#9090ff;text-decoration:underline;font-size:11px">#${p.numero||p.id}</span>`).join(" ");
         return `<div class="pcard" style="border-left:3px solid #2f9e6b">
-          <div style="font-weight:700;font-size:13px;margin-bottom:2px">${esc(g.nome)}</div>
-          <div style="font-size:11px;color:#9a95c9;margin-bottom:3px">${nums}</div>
+          <div style="font-weight:700;font-size:13px;margin-bottom:4px">${esc(g.nome)}</div>
+          <div style="margin-bottom:3px;display:flex;flex-wrap:wrap;gap:4px">${nums}</div>
           ${dataStr?`<div style="font-size:11px;color:#514c96;margin-bottom:3px">📅 ${dataStr}</div>`:""}
           <div style="font-size:13px;color:#2f9e6b;font-weight:700">${brl(g.total)}</div>
           <div style="font-size:10px;color:#9a95c9;margin-top:2px">${g.pedidos.length} pedido(s)</div>
