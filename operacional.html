@@ -220,10 +220,40 @@ function render(){
 
   const totalPed=colunas.reduce((s,c)=>s+pedidos.filter(p=>p.situacao?.id===c.sit).length,0);
   const cols=colunas.map(col=>{
-    const lista=pedidos.filter(p=>p.situacao?.id===col.sit);
-    const cards=lista.length
-      ? lista.map(p=>cardPedido(p,col)).join("")
-      : `<div class="muted" style="text-align:center;padding:20px;font-size:12px">Nenhum pedido</div>`;
+    // Filtrar Consumidor Final de todas as colunas exceto Atendidos
+    let lista=pedidos.filter(p=>p.situacao?.id===col.sit);
+    if(col.sit!==SIT.ATENDIDO){
+      lista=lista.filter(p=>p.contato?.nome&&!p.contato.nome.toLowerCase().includes("consumidor final"));
+    }
+
+    let cards="";
+    if(!lista.length){
+      cards=`<div class="muted" style="text-align:center;padding:20px;font-size:12px">Nenhum pedido</div>`;
+    } else if(col.sit===SIT.ATENDIDO){
+      // Agrupa por cliente
+      const grupos={};
+      lista.forEach(p=>{
+        const nome=p.contato?.nome||"—";
+        if(!grupos[nome]) grupos[nome]={nome,pedidos:[],total:0,contato:p.contato};
+        grupos[nome].pedidos.push(p);
+        grupos[nome].total+=+(p.total||0);
+      });
+      cards=Object.values(grupos).map(g=>{
+        const datas=[...new Set(g.pedidos.map(p=>p.data).filter(Boolean))].sort().reverse();
+        const dataStr=datas.length?datas.map(d=>new Date(d+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})).join(", "):"";
+        const nums=g.pedidos.map(p=>`#${p.numero||p.id}`).join(", ");
+        return `<div class="pcard" style="border-left:3px solid #2f9e6b">
+          <div style="font-weight:700;font-size:13px;margin-bottom:2px">${esc(g.nome)}</div>
+          <div style="font-size:11px;color:#9a95c9;margin-bottom:3px">${nums}</div>
+          ${dataStr?`<div style="font-size:11px;color:#514c96;margin-bottom:3px">📅 ${dataStr}</div>`:""}
+          <div style="font-size:13px;color:#2f9e6b;font-weight:700">${brl(g.total)}</div>
+          <div style="font-size:10px;color:#9a95c9;margin-top:2px">${g.pedidos.length} pedido(s)</div>
+        </div>`;
+      }).join("");
+    } else {
+      cards=lista.map(p=>cardPedido(p,col)).join("");
+    }
+
     return `<div class="kcol">
       <div class="kcol-head">
         <span>${col.label}</span>
