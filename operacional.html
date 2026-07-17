@@ -394,10 +394,8 @@ function montarBotoes(p,aba,pago,parcial){
   }
   // ABA: em rota
   if(sit===SIT.EM_ROTA){
-    const pag2=pags[String(id)]; const pago2=pag2?.statusPagamento==="pago";
     return `<div style="display:flex;gap:6px;flex-wrap:wrap;width:100%">
-      ${!pago2&&PODE("receber_pagamento")?`<button class="btn btn-grn" onclick="abrirPagamentoRota(${id},${p.total})">💰 Receber pagamento</button>`:""}
-      <button class="btn btn-blue" onclick="abrirConfirmarEntrega(${id})">📦 Confirmar entrega</button>
+      <button class="btn btn-blue" style="flex:1" onclick="abrirConfirmarEntrega(${id})">📦 Confirmar entrega</button>
     </div>`;
   }
   // ABA: atendidos
@@ -477,21 +475,31 @@ async function abrirConfirmarEntrega(id){
     ]);
     const ped=rPed.data||rPed; const pag=rPag.data;
     const pago=pag?.statusPagamento==="pago";
+    const valorPago=+(pag?.valorPago||0);
+    const total=+(ped.totalProdutos||ped.total||0);
+    const falta=+(total-valorPago).toFixed(2);
     window._entregaPed=ped; window._entregaPag=pag;
     window._itensOcorrencia=[];
+    // Se não pago ou parcial, mostra aviso mas permite continuar
+    if(!pago&&falta>0.01){
+      window._entregaFalta=falta;
+    } else {
+      window._entregaFalta=0;
+    }
     renderConfirmarEntrega(id,ped,pag,[]);
   }catch(e){ document.getElementById("mbox").innerHTML=`<div class="err">Erro ao carregar</div>`; }
 }
 
 function renderConfirmarEntrega(id,ped,pag,ocorrencias){
   const pago=pag?.statusPagamento==="pago";
-  const total=+(ped.total||0); const pago_val=+(pag?.valorPago||0);
+  const total=+(ped.totalProdutos||ped.total||0); const pago_val=+(pag?.valorPago||0);
+  const falta=+(total-pago_val).toFixed(2);
   const valOcorr=ocorrencias.reduce((s,o)=>s+(o.valorItem||0),0);
   const saldoFinal=+(total-valOcorr).toFixed(2);
   const itens=(ped.itens||[]).map((it,ix)=>{
     const ocorr=ocorrencias.find(o=>o.ix===ix);
     return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
-      <span style="flex:1;${ocorr?'color:#ff8090;text-decoration:line-through':''}">${esc(it.descricao||it.produto?.nome||"")}</span>
+      <span style="flex:1;${ocorr?"color:#ff8090;text-decoration:line-through":""}">${esc(it.descricao||it.produto?.nome||"")}</span>
       <span class="muted">x${it.quantidade}</span>
       <span style="width:80px;text-align:right">${brl((it.valor||0)*it.quantidade)}</span>
       ${ocorr
@@ -502,22 +510,57 @@ function renderConfirmarEntrega(id,ped,pag,ocorrencias){
     </div>`;
   }).join("");
 
+  const pagStatusHtml=pago
+    ?`<div style="background:#0a2a1a;border:1px solid #2f9e6b;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:13px;color:#a8f0c8">✅ Pago — ${brl(pago_val)}</div>`
+    :`<div style="background:#2a0a00;border:1px solid #e5563f;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:13px;color:#ff8090;display:flex;justify-content:space-between;align-items:center">
+        <span>🔴 NÃO PAGO — falta <b>${brl(falta)}</b></span>
+        <button class="btn btn-grn" style="font-size:11px;padding:3px 10px" onclick="abrirPagamentoEntregaInline(${id},${total})">💰 Registrar</button>
+      </div>`;
+
   document.getElementById("mbox").innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <h3>📦 Confirmar Entrega — Pedido ${esc(ped.numero||id)}</h3>
       <button class="btn btn-ghost" onclick="fecharModal()">✕</button></div>
     <div class="muted" style="margin-bottom:8px">${esc(ped.contato?.nome||"—")}</div>
-    ${pago?`<div class="pag-info">✅ Pago — ${brl(pago_val)}</div>`:`<div class="pag-pend">💰 Pagamento pendente</div>`}
-    <div style="font-size:12px;color:#9a95c9;margin:6px 0">📦 = Não entregue  &nbsp; 📷 = Danificado (foto obrigatória)</div>
+    ${pagStatusHtml}
+    <div style="font-size:12px;color:#9a95c9;margin:4px 0 6px">📦 = Não entregue &nbsp; 📷 = Danificado</div>
     <div style="max-height:35vh;overflow:auto;margin:8px 0">${itens}</div>
     ${ocorrencias.length?`<div style="background:#3a0010;border-radius:8px;padding:8px;margin-bottom:8px;font-size:13px">
       ⚠️ ${ocorrencias.length} ocorrência(s) — abatimento: <b style="color:#ff8090">${brl(valOcorr)}</b>
-      <br>Novo total: <b>${brl(saldoFinal)}</b></div>`:``}
+      <br>Novo total: <b>${brl(saldoFinal)}</b></div>`:""}
     <div id="entregaMsg"></div>
     <button class="btn btn-grn" style="width:100%;margin-top:8px" onclick="concluirEntrega(${id})">
       ✅ Confirmar entrega${ocorrencias.length?` com ${ocorrencias.length} ocorrência(s)`:""}</button>
     <button class="btn btn-ghost" style="width:100%;margin-top:6px" onclick="fecharModal()">Cancelar</button>`;
 }
+
+async function abrirPagamentoEntregaInline(id,total){
+  const formasOpts=formasPag.map(f=>`<option value="${f.id}">${esc(f.nome||f.id)}</option>`).join("");
+  document.getElementById("entregaMsg").innerHTML=`
+    <div style="background:#1c1846;border:1px solid #514c96;border-radius:10px;padding:12px;margin-top:8px">
+      <div style="font-weight:700;margin-bottom:8px">💰 Registrar pagamento</div>
+      <input type="number" id="valPagEntrega" placeholder="Valor" value="${total.toFixed(2)}"
+        style="width:100%;padding:7px;background:#0f0d24;border:1px solid #514c96;border-radius:7px;color:#fff;font-size:14px;margin-bottom:6px">
+      <select id="formaPagEntrega" style="width:100%;padding:7px;background:#0f0d24;border:1px solid #514c96;border-radius:7px;color:#fff;font-size:13px;margin-bottom:8px">
+        ${formasOpts}
+      </select>
+      <button class="btn btn-grn" style="width:100%" onclick="confirmarPagEntregaInline(${id},${total})">✅ Registrar e continuar</button>
+    </div>`;
+}
+
+async function confirmarPagEntregaInline(id,total){
+  const val=+document.getElementById("valPagEntrega").value||total;
+  const sel=document.getElementById("formaPagEntrega");
+  const formaId=sel.value; const formaNome=sel.options[sel.selectedIndex]?.text||"";
+  try{
+    await fetch(B+"/api/pagamentos/"+id,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({valor:val,formaId,formaNome,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,substituir:true})});
+    const rPag=await fetch(B+"/api/pagamentos/"+id).then(r=>r.json());
+    window._entregaPag=rPag.data;
+    renderConfirmarEntrega(id,window._entregaPed,rPag.data,window._itensOcorrencia||[]);
+  }catch(e){ document.getElementById("entregaMsg").innerHTML=`<div class="err">Erro ao registrar</div>`; }
+}
+
 
 async function marcarOcorrencia(id,ix,tipo){
   const it=window._entregaPed?.itens?.[ix]; if(!it) return;
