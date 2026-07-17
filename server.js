@@ -453,6 +453,15 @@ app.post("/api/pagamentos/:id/resetar",(req,res)=>{
   res.json({ok:true});
 });
 
+// Parcela "à vista": vencimento no mesmo dia (ou antes) da data da venda.
+// O Bling baixa esse tipo de parcela automaticamente no caixa/banco na hora
+// que o pedido é salvo, então não gera conta a receber em aberto — tratamos
+// como paga. Parcela a prazo (vencimento futuro) fica pendente.
+function parcelaEhAVista(p,ped){
+  if(!p?.dataVencimento||!ped?.data) return false;
+  return String(p.dataVencimento)<=String(ped.data);
+}
+
 // Buscar histórico de pagamento de um pedido específico
 app.get("/api/pagamentos/:id",async(req,res)=>{
   try{
@@ -465,10 +474,7 @@ app.get("/api/pagamentos/:id",async(req,res)=>{
         const rPed=await bling(`/pedidos/vendas/${id}`);
         const ped=rPed?.data||{};
         const parcelas=ped.parcelas||[];
-        const parcelasPagas=parcelas.filter(p=>
-          p.situacao?.id===2||p.situacao?.valor===2||
-          p.situacao?.descricao==="Pago"||p.dataRecebimento
-        );
+        const parcelasPagas=parcelas.filter(p=>parcelaEhAVista(p,ped));
         if(parcelasPagas.length>0){
           const valorBling=+parcelasPagas.reduce((s,p)=>s+(p.valor||0),0).toFixed(2);
           const valorLocal=+(pagLocal.valorPago||0);
@@ -495,14 +501,17 @@ app.get("/api/pagamentos/:id",async(req,res)=>{
     if(passouPeloNossoFluxo) return res.json({data:null});
 
     // Pedido do Bling direto — verifica parcelas
+    // OBS: esse endpoint (/pedidos/vendas/:id) não retorna se a parcela foi
+    // efetivamente recebida (não existe campo "situacao"/"dataRecebimento" na parcela).
+    // Vendas à vista (dataVencimento da parcela <= data da venda) são baixadas
+    // automaticamente pelo Bling direto no caixa/banco no momento da criação —
+    // por isso tratamos essas como pagas. Vendas a prazo (vencimento futuro)
+    // ficam como pendentes até virarem conta a receber de fato.
     const rPed=await bling(`/pedidos/vendas/${id}`);
     const ped=rPed?.data||{};
     const parcelas=ped.parcelas||[];
     const totalPed=+(ped.totalProdutos||ped.total||0);
-    const parcelasPagas=parcelas.filter(p=>
-      p.situacao?.id===2||p.situacao?.valor===2||
-      p.situacao?.descricao==="Pago"||p.dataRecebimento
-    );
+    const parcelasPagas=parcelas.filter(p=>parcelaEhAVista(p,ped));
     const valorPago=+parcelasPagas.reduce((s,p)=>s+(p.valor||0),0).toFixed(2);
     if(valorPago>0.01){
       const formaPag=ped.formaPagamento;
