@@ -1014,6 +1014,9 @@ async function confirmarRetirarSeguir(id){
     
     const diff=+(valorPago-valorNovoPedido).toFixed(2); // positivo=estorno, negativo=falta pagamento
 
+    // salvar em globais para uso nos onclicks
+    window._pendDescItens=descItens||"";
+    window._pendDiff=Math.abs(diff);
     // Caso 1: pago e precisa estorno
     if(statusPag==="pago"&&diff>0.01){
       const optsForma=formasPag.map(f=>`<option value="${f.id}">${esc(f.nome||f.id)}</option>`).join("");
@@ -1046,7 +1049,7 @@ async function confirmarRetirarSeguir(id){
           </div>
           <div id="resolucaoSel" style="font-size:12px;color:#9a95c9;margin-bottom:8px"></div>
           <button id="btnConfirmarRetirar" class="btn btn-mag" style="width:100%;display:none"
-            onclick="executarRetirarSeguir(${id},window._resolucaoSel||'registrar',${diff},'${descItens.replace(/'/g,"\'")}')">
+            onclick="executarRetirarSeguir(${id},window._resolucaoSel||'registrar',window._pendDiff,window._pendDescItens)">
             ✅ Confirmar
           </button>
         </div>`;
@@ -1073,7 +1076,7 @@ async function confirmarRetirarSeguir(id){
           </select>
           <div id="resolucaoSel" style="font-size:12px;color:#9a95c9;margin-bottom:8px"></div>
           <button class="btn btn-grn" style="width:100%"
-            onclick="executarRetirarSeguir(${id},'pagamento_adicional',${-diff},'${descItens.replace(/'/g,"\'")}')">
+            onclick="executarRetirarSeguir(${id},'pagamento_adicional',window._pendDiff,window._pendDescItens)">
             ✅ Registrar e Confirmar
           </button>
         </div>`;
