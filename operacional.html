@@ -885,20 +885,20 @@ async function executarRetirarSeguir(id,resolucao,valorAbatido){
   const itensFiltrados=window.itensEdit.filter(i=>i.quantidade>0);
   const ped=window.pedidoEditOrig;
   try{
-    // Detecta se houve mudança real além das pendências registradas
     const itensOriginais=window.itensEdit;
+    // Item removido = marcado como removido ou quantidade zerada
     const itensRemovidos=itensOriginais.filter(i=>i._removido||i.quantidade===0);
-    const itensAjustados=itensOriginais.filter(i=>!i._removido&&i.quantidade>0&&i.quantidade!==i.quantidadeOriginal);
-    const itensIguaisAoSeparado=itensOriginais.filter(i=>!i._removido&&i.quantidade>0&&i._teveFalta&&i.quantidade===i.temQtd);
-    
-    // Decide destino: se só ajustou para o que tinha (sem novidades), vai para SEPARADO
-    // Se removeu itens ou mudou quantidade além do que tinha → volta para EM SEPARAÇÃO
-    const temMudancaAlemDaPendencia=
-      itensRemovidos.length>0 || // item removido completamente
-      itensAjustados.some(i=>i.quantidade!==i.temQtd); // quantidade diferente do que tinha
-    
-    const destinoSit=temMudancaAlemDaPendencia?SIT.EM_SEP:SIT.SEPARADO;
-    const logEvento=temMudancaAlemDaPendencia?"pendencias_voltou_separacao":"pendencias_retiradas_seguiu";
+    // Quantidade diferente da que foi separada (temQtd) → alteração real
+    const itensComQtdAlterada=itensOriginais.filter(i=>
+      !i._removido && i.quantidade>0 && i._teveFalta && i.quantidade!==i.temQtd
+    );
+
+    // Regra:
+    // → Confirmou com a qtd que tinha (temQtd) = vai para SEPARADO
+    // → Removeu item OU mudou qtd diferente do que tinha = volta para EM SEPARAÇÃO
+    const temAlteracao = itensRemovidos.length>0 || itensComQtdAlterada.length>0;
+    const destinoSit  = temAlteracao ? SIT.EM_SEP : SIT.SEPARADO;
+    const logEvento   = temAlteracao ? "pendencias_voltou_separacao" : "pendencias_confirmadas_separado";
 
     // Notificação para expedição se voltou com itens removidos/alterados
     if(temMudancaAlemDaPendencia&&itensRemovidos.length>0){
@@ -949,7 +949,7 @@ function abrirQR(id, numero){
   document.getElementById("mbox").innerHTML=`
     <div style="text-align:center;padding:20px;max-width:340px">
       <h3 style="margin-bottom:4px">📱 QR Code — Pedido #${numero||id}</h3>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Logado no sistema → visão completa admin<br>Não logado → visão do cliente</div>
+      
       <div style="background:#fff;padding:12px;border-radius:10px;display:inline-block;margin-bottom:10px">
         <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(urlStatus)}" style="width:180px;height:180px;display:block">
       </div>
