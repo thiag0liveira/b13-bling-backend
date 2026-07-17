@@ -901,8 +901,7 @@ async function executarRetirarSeguir(id,resolucao,valorAbatido){
     const logEvento   = temAlteracao ? "pendencias_voltou_separacao" : "pendencias_confirmadas_separado";
 
     // Notificação para expedição se voltou com itens removidos/alterados
-    if(temMudancaAlemDaPendencia&&itensRemovidos.length>0){
-      const nomesRemovidos=itensRemovidos.map(i=>i.descricao).join(", ");
+    if(temAlteracao&&itensRemovidos.length>0){
       await fetch(B+"/api/log/"+id,{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({evento:"itens_removidos_conferencia",funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,
           detalhes:{itens:itensRemovidos.map(i=>i.descricao),motivo:"removido na resolução de pendências"}})}).catch(()=>{});
@@ -916,7 +915,7 @@ async function executarRetirarSeguir(id,resolucao,valorAbatido){
         body:JSON.stringify({funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,itensNaoEntregues:[],itensDanificados:[],valorAbatido,resolucao:"credito",clienteId:ped.contato.id,clienteNome:ped.contato.nome})}).catch(()=>{});
     }
     const formaEstorno=resolucao==="estorno"?{formaId:window._estornoFormaId,formaNome:window._estornoFormaNome}:null;
-    await fetch(B+"/api/log/"+id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({evento:logEvento,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,detalhes:{itensAjustados:itensFiltrados.length,valorAbatido,resolucao,formaEstorno,voltouSep:temMudancaAlemDaPendencia}})}).catch(()=>{});
+    await fetch(B+"/api/log/"+id,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({evento:logEvento,funcionarioId:FUNC?.id,funcionarioNome:FUNC?.nome,detalhes:{itensAjustados:itensFiltrados.length,valorAbatido,resolucao,formaEstorno,voltouSep:temAlteracao}})}).catch(()=>{});
     fecharModal(); await carregar();
     if(resolucao==="credito") alert(`✅ Pendências retiradas!
 💳 Crédito de ${brl(valorAbatido)} registrado para ${ped?.contato?.nome||"o cliente"}.`);
